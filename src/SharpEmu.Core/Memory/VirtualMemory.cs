@@ -41,15 +41,21 @@ public sealed class VirtualMemory : IVirtualMemory
 
         lock (_gate)
         {
-            foreach (var existing in _regions)
+            // _regions is kept sorted by VirtualAddress so reads/writes can binary
+            // search. Regions never overlap, so an overlap can only occur with the
+            // immediate neighbours of the insertion point.
+            var index = LowerBound(virtualAddress);
+            if (index > 0 && _regions[index - 1].EndAddress > virtualAddress)
             {
-                if (virtualAddress < existing.EndAddress && endAddress > existing.Region.VirtualAddress)
-                {
-                    throw new InvalidOperationException("Attempted to map an overlapping virtual memory region.");
-                }
+                throw new InvalidOperationException("Attempted to map an overlapping virtual memory region.");
             }
 
-            _regions.Add(new MappedRegion(
+            if (index < _regions.Count && endAddress > _regions[index].Region.VirtualAddress)
+            {
+                throw new InvalidOperationException("Attempted to map an overlapping virtual memory region.");
+            }
+
+            _regions.Insert(index, new MappedRegion(
                 new VirtualMemoryRegion(virtualAddress, memorySize, fileOffset, (ulong)fileData.Length, protection),
                 endAddress,
                 backingMemory));
@@ -100,27 +106,65 @@ public sealed class VirtualMemory : IVirtualMemory
 
     private bool TryResolveRegion(ulong virtualAddress, int length, out MappedRegion region, out int offset)
     {
-        foreach (var candidate in _regions)
+        // Binary search for the last region whose start is <= virtualAddress. Since
+        // regions are sorted and non-overlapping, that is the only region that can
+        // contain the address.
+        var lo = 0;
+        var hi = _regions.Count - 1;
+        var found = -1;
+        while (lo <= hi)
         {
-            if (virtualAddress < candidate.Region.VirtualAddress || virtualAddress >= candidate.EndAddress)
+            var mid = lo + ((hi - lo) >> 1);
+            if (_regions[mid].Region.VirtualAddress <= virtualAddress)
             {
-                continue;
+                found = mid;
+                lo = mid + 1;
             }
-
-            var candidateOffset = checked((int)(virtualAddress - candidate.Region.VirtualAddress));
-            if (candidateOffset + length > candidate.BackingMemory.Length)
+            else
             {
-                break;
+                hi = mid - 1;
             }
+        }
 
-            region = candidate;
-            offset = candidateOffset;
-            return true;
+        if (found >= 0)
+        {
+            var candidate = _regions[found];
+            if (virtualAddress < candidate.EndAddress)
+            {
+                var candidateOffset = checked((int)(virtualAddress - candidate.Region.VirtualAddress));
+                if (candidateOffset + length <= candidate.BackingMemory.Length)
+                {
+                    region = candidate;
+                    offset = candidateOffset;
+                    return true;
+                }
+            }
         }
 
         region = default;
         offset = 0;
         return false;
+    }
+
+    // First index whose region starts at or after the given address (std::lower_bound).
+    private int LowerBound(ulong address)
+    {
+        var lo = 0;
+        var hi = _regions.Count;
+        while (lo < hi)
+        {
+            var mid = lo + ((hi - lo) >> 1);
+            if (_regions[mid].Region.VirtualAddress < address)
+            {
+                lo = mid + 1;
+            }
+            else
+            {
+                hi = mid;
+            }
+        }
+
+        return lo;
     }
 
     private readonly record struct MappedRegion(VirtualMemoryRegion Region, ulong EndAddress, byte[] BackingMemory);
