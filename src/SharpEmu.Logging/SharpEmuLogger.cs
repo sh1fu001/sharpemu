@@ -16,6 +16,83 @@ public sealed class SharpEmuLogger
 
     public bool IsEnabled(LogLevel level) => SharpEmuLog.IsEnabled(level);
 
+    // Zero-allocation interpolated overloads: when the level is disabled the
+    // interpolated string is never built (see *LogInterpolatedStringHandler).
+
+    public void Trace(
+        [InterpolatedStringHandlerArgument] ref TraceLogInterpolatedStringHandler handler,
+        [CallerFilePath] string sourceFilePath = "",
+        [CallerLineNumber] int sourceLine = 0,
+        [CallerMemberName] string sourceMemberName = "")
+    {
+        if (handler.Enabled)
+        {
+            Write(LogLevel.Trace, handler.ToStringAndClear(), exception: null, sourceFilePath, sourceLine, sourceMemberName);
+        }
+    }
+
+    public void Debug(
+        [InterpolatedStringHandlerArgument] ref DebugLogInterpolatedStringHandler handler,
+        [CallerFilePath] string sourceFilePath = "",
+        [CallerLineNumber] int sourceLine = 0,
+        [CallerMemberName] string sourceMemberName = "")
+    {
+        if (handler.Enabled)
+        {
+            Write(LogLevel.Debug, handler.ToStringAndClear(), exception: null, sourceFilePath, sourceLine, sourceMemberName);
+        }
+    }
+
+    public void Info(
+        [InterpolatedStringHandlerArgument] ref InfoLogInterpolatedStringHandler handler,
+        [CallerFilePath] string sourceFilePath = "",
+        [CallerLineNumber] int sourceLine = 0,
+        [CallerMemberName] string sourceMemberName = "")
+    {
+        if (handler.Enabled)
+        {
+            Write(LogLevel.Info, handler.ToStringAndClear(), exception: null, sourceFilePath, sourceLine, sourceMemberName);
+        }
+    }
+
+    public void Warning(
+        [InterpolatedStringHandlerArgument] ref WarningLogInterpolatedStringHandler handler,
+        [CallerFilePath] string sourceFilePath = "",
+        [CallerLineNumber] int sourceLine = 0,
+        [CallerMemberName] string sourceMemberName = "")
+    {
+        if (handler.Enabled)
+        {
+            Write(LogLevel.Warning, handler.ToStringAndClear(), exception: null, sourceFilePath, sourceLine, sourceMemberName);
+        }
+    }
+
+    public void Error(
+        ref ErrorLogInterpolatedStringHandler handler,
+        Exception? exception = null,
+        [CallerFilePath] string sourceFilePath = "",
+        [CallerLineNumber] int sourceLine = 0,
+        [CallerMemberName] string sourceMemberName = "")
+    {
+        if (handler.Enabled)
+        {
+            Write(LogLevel.Error, handler.ToStringAndClear(), exception, sourceFilePath, sourceLine, sourceMemberName);
+        }
+    }
+
+    public void Critical(
+        ref CriticalLogInterpolatedStringHandler handler,
+        Exception? exception = null,
+        [CallerFilePath] string sourceFilePath = "",
+        [CallerLineNumber] int sourceLine = 0,
+        [CallerMemberName] string sourceMemberName = "")
+    {
+        if (handler.Enabled)
+        {
+            Write(LogLevel.Critical, handler.ToStringAndClear(), exception, sourceFilePath, sourceLine, sourceMemberName);
+        }
+    }
+
     public void Trace(
         string message,
         [CallerFilePath] string sourceFilePath = "",

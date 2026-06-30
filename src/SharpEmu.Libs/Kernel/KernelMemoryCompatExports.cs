@@ -3,6 +3,7 @@
 
 using SharpEmu.HLE;
 using SharpEmu.Libs.Ampr;
+using SharpEmu.Logging;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Text;
@@ -16,6 +17,8 @@ namespace SharpEmu.Libs.Kernel;
 
 public static class KernelMemoryCompatExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Kernel");
+
     private const int MaxGuestStringLength = 4096;
     private const int WideCharSize = sizeof(ushort);
     private const int MemsetChunkSize = 16 * 1024;
@@ -226,8 +229,8 @@ public static class KernelMemoryCompatExports
                 var recoveryIndex = Interlocked.Increment(ref _nullMemsetRecoveryCount);
                 if (recoveryIndex <= 8)
                 {
-                    Console.Error.WriteLine(
-                        $"[LOADER][WARNING] memset null-dst recovery#{recoveryIndex}: rip=0x{ctx.Rip:X16} len=0x{length:X} val=0x{value:X2}");
+                    Log.Warning(
+                        $"memset null-dst recovery#{recoveryIndex}: rip=0x{ctx.Rip:X16} len=0x{length:X} val=0x{value:X2}");
                 }
 
                 ctx[CpuRegister.Rax] = 0;
@@ -243,8 +246,8 @@ public static class KernelMemoryCompatExports
             var recoveryIndex = Interlocked.Increment(ref _nonCanonicalMemsetRecoveryCount);
             if (recoveryIndex <= 8)
             {
-                Console.Error.WriteLine(
-                    $"[LOADER][WARNING] memset non-canonical-dst recovery#{recoveryIndex}: rip=0x{ctx.Rip:X16} dst=0x{destination:X16} len=0x{length:X} val=0x{value:X2}");
+                Log.Warning(
+                    $"memset non-canonical-dst recovery#{recoveryIndex}: rip=0x{ctx.Rip:X16} dst=0x{destination:X16} len=0x{length:X} val=0x{value:X2}");
             }
 
             ctx[CpuRegister.Rax] = destination;
@@ -274,8 +277,8 @@ public static class KernelMemoryCompatExports
                     var recoveryIndex = Interlocked.Increment(ref _inaccessibleMemsetRecoveryCount);
                     if (recoveryIndex <= 8)
                     {
-                        Console.Error.WriteLine(
-                            $"[LOADER][WARNING] memset inaccessible-dst recovery#{recoveryIndex}: rip=0x{ctx.Rip:X16} dst=0x{destination:X16} len=0x{length:X} val=0x{value:X2}");
+                        Log.Warning(
+                            $"memset inaccessible-dst recovery#{recoveryIndex}: rip=0x{ctx.Rip:X16} dst=0x{destination:X16} len=0x{length:X} val=0x{value:X2}");
                     }
 
                     ctx[CpuRegister.Rax] = destination;
@@ -353,18 +356,18 @@ public static class KernelMemoryCompatExports
             Span<byte> probe = stackalloc byte[32];
             if (TryReadCompat(ctx, address, probe))
             {
-                Console.Error.WriteLine(
-                    $"[LOADER][TRACE] wcslen probe @0x{address:X16}: {Convert.ToHexString(probe).ToLowerInvariant()}");
+                Log.Trace(
+                    $"wcslen probe @0x{address:X16}: {Convert.ToHexString(probe).ToLowerInvariant()}");
             }
             else
             {
-                Console.Error.WriteLine($"[LOADER][TRACE] wcslen probe @0x{address:X16}: <unreadable>");
+                Log.Trace($"wcslen probe @0x{address:X16}: <unreadable>");
             }
         }
 
         if (!TryReadWideCString(ctx, address, 1_048_576, out var units))
         {
-            Console.Error.WriteLine($"[LOADER][WARN] wcslen: unreadable string at 0x{address:X16}");
+            Log.Warning($"wcslen: unreadable string at 0x{address:X16}");
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
 
@@ -443,8 +446,8 @@ public static class KernelMemoryCompatExports
             var recoveryIndex = Interlocked.Increment(ref _nullWcscpyRecoveryCount);
             if (recoveryIndex <= 8)
             {
-                Console.Error.WriteLine(
-                    $"[LOADER][WARNING] wcscpy null-src recovery#{recoveryIndex}: rip=0x{ctx.Rip:X16} dst=0x{destination:X16}");
+                Log.Warning(
+                    $"wcscpy null-src recovery#{recoveryIndex}: rip=0x{ctx.Rip:X16} dst=0x{destination:X16}");
             }
 
             if (!TryWriteWideTerminator(ctx, destination))
@@ -2333,8 +2336,8 @@ public static class KernelMemoryCompatExports
                     _mainDirectMemoryPoolBase = poolBase;
                     if (ShouldTraceDirectMemory())
                     {
-                        Console.Error.WriteLine(
-                            $"[LOADER][TRACE] main_direct_pool: base=0x{poolBase:X16} limit=0x{shiftedLimit:X16}");
+                        Log.Trace(
+                            $"main_direct_pool: base=0x{poolBase:X16} limit=0x{shiftedLimit:X16}");
                     }
                 }
                 else
@@ -2422,8 +2425,8 @@ public static class KernelMemoryCompatExports
         var alignment = ctx[CpuRegister.R9];
         if (ShouldTraceDirectMemory())
         {
-            Console.Error.WriteLine(
-                $"[LOADER][TRACE] map_direct: inout=0x{inOutAddressPointer:X16} len=0x{length:X16} prot=0x{protection:X8} flags=0x{flags:X16} direct=0x{directMemoryStart:X16} align=0x{alignment:X16}");
+            Log.Trace(
+                $"map_direct: inout=0x{inOutAddressPointer:X16} len=0x{length:X16} prot=0x{protection:X8} flags=0x{flags:X16} direct=0x{directMemoryStart:X16} align=0x{alignment:X16}");
         }
         if (inOutAddressPointer == 0 || length == 0)
         {
@@ -2457,8 +2460,8 @@ public static class KernelMemoryCompatExports
             }
             if (ShouldTraceDirectMemory())
             {
-                Console.Error.WriteLine(
-                    $"[LOADER][TRACE] map_direct reserve: requested=0x{requestedAddress:X16} desired=0x{desiredAddress:X16} reserved={reserved} mapped=0x{mappedAddress:X16}");
+                Log.Trace(
+                    $"map_direct reserve: requested=0x{requestedAddress:X16} desired=0x{desiredAddress:X16} reserved={reserved} mapped=0x{mappedAddress:X16}");
             }
             if (!reserved)
             {
@@ -2469,7 +2472,7 @@ public static class KernelMemoryCompatExports
                         : AllocateMappedGuestAddress(ctx, length, effectiveAlignment);
                     if (ShouldTraceDirectMemory())
                     {
-                        Console.Error.WriteLine($"[LOADER][TRACE] map_direct fallback mapped=0x{mappedAddress:X16}");
+                        Log.Trace($"map_direct fallback mapped=0x{mappedAddress:X16}");
                     }
                 }
             }
@@ -2518,8 +2521,8 @@ public static class KernelMemoryCompatExports
         var length = ctx[CpuRegister.Rsi];
         var protection = unchecked((int)ctx[CpuRegister.Rdx]);
         var flags = ctx[CpuRegister.Rcx];
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] map_flexible: inout=0x{inOutAddressPointer:X16} len=0x{length:X16} prot=0x{protection:X8} flags=0x{flags:X16}");
+        Log.Trace(
+            $"map_flexible: inout=0x{inOutAddressPointer:X16} len=0x{length:X16} prot=0x{protection:X8} flags=0x{flags:X16}");
         if (inOutAddressPointer == 0 || length == 0)
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
@@ -2549,8 +2552,8 @@ public static class KernelMemoryCompatExports
                     : AllocateMappedGuestAddress(ctx, length, 0x1000UL);
             }
 
-            Console.Error.WriteLine(
-                $"[LOADER][TRACE] map_flexible reserve: requested=0x{requestedAddress:X16} desired=0x{desiredAddress:X16} mapped=0x{mappedAddress:X16}");
+            Log.Trace(
+                $"map_flexible reserve: requested=0x{requestedAddress:X16} desired=0x{desiredAddress:X16} mapped=0x{mappedAddress:X16}");
 
             if (mappedAddress == 0)
             {
@@ -3082,8 +3085,8 @@ public static class KernelMemoryCompatExports
 
         var formatPreview = format.Length > 160 ? format[..160] + "..." : format;
         var renderedPreview = rendered.Length > 160 ? rendered[..160] + "..." : rendered;
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] {exportName}: dst=0x{destination:X16} count=0x{bufferSize:X} len={rendered.Length} fmt='{formatPreview}' rendered='{renderedPreview}'");
+        Log.Trace(
+            $"{exportName}: dst=0x{destination:X16} count=0x{bufferSize:X} len={rendered.Length} fmt='{formatPreview}' rendered='{renderedPreview}'");
     }
 
     private static void TraceWidePrintfVaList(
@@ -3098,8 +3101,8 @@ public static class KernelMemoryCompatExports
             return;
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] {exportName}: va_list=0x{vaListAddress:X16} gp_offset={cursor.GpOffset} fp_offset={cursor.FpOffset} overflow=0x{cursor.OverflowArgArea:X16} reg_save=0x{cursor.RegSaveArea:X16}");
+        Log.Trace(
+            $"{exportName}: va_list=0x{vaListAddress:X16} gp_offset={cursor.GpOffset} fp_offset={cursor.FpOffset} overflow=0x{cursor.OverflowArgArea:X16} reg_save=0x{cursor.RegSaveArea:X16}");
 
         if (cursor.RegSaveArea != 0)
         {
@@ -3109,8 +3112,8 @@ public static class KernelMemoryCompatExports
                 var valueText = TryReadUInt64Compat(ctx, slotAddress, out var value)
                     ? $"0x{value:X16}"
                     : "<unreadable>";
-                Console.Error.WriteLine(
-                    $"[LOADER][TRACE] {exportName}: reg_save.gp[{i}] @0x{slotAddress:X16} = {valueText}");
+                Log.Trace(
+                    $"{exportName}: reg_save.gp[{i}] @0x{slotAddress:X16} = {valueText}");
             }
         }
 
@@ -3122,8 +3125,8 @@ public static class KernelMemoryCompatExports
                 var valueText = TryReadUInt64Compat(ctx, slotAddress, out var value)
                     ? $"0x{value:X16}"
                     : "<unreadable>";
-                Console.Error.WriteLine(
-                    $"[LOADER][TRACE] {exportName}: overflow[{i}] @0x{slotAddress:X16} = {valueText}");
+                Log.Trace(
+                    $"{exportName}: overflow[{i}] @0x{slotAddress:X16} = {valueText}");
             }
         }
     }
@@ -3179,8 +3182,8 @@ public static class KernelMemoryCompatExports
                 : "<unreadable>";
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] printf-arg %{lengthMod}s addr=0x{address:X16} wide='{widePreview}' utf8='{utf8Preview}' raw={rawPreview}");
+        Log.Trace(
+            $"printf-arg %{lengthMod}s addr=0x{address:X16} wide='{widePreview}' utf8='{utf8Preview}' raw={rawPreview}");
     }
 
     private static string SanitizeTracePreview(string value, int maxLength)
@@ -3328,8 +3331,8 @@ public static class KernelMemoryCompatExports
             _ = ctx.TryReadUInt64(stackPointer, out returnRip);
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] {operation}: ret=0x{returnRip:X16} size=0x{size:X16} count=0x{count:X16} align=0x{alignment:X16} in=0x{existingAddress:X16} result=0x{resultAddress:X16} errno={(errorCode.HasValue ? errorCode.Value : 0)}");
+        Log.Trace(
+            $"{operation}: ret=0x{returnRip:X16} size=0x{size:X16} count=0x{count:X16} align=0x{alignment:X16} in=0x{existingAddress:X16} result=0x{resultAddress:X16} errno={(errorCode.HasValue ? errorCode.Value : 0)}");
     }
 
     internal static string FormatStringFromVarArgs(CpuContext ctx, string format, int firstGpArgIndex)
@@ -3931,7 +3934,7 @@ public static class KernelMemoryCompatExports
 
             if (allocateAt is null)
             {
-                Console.Error.WriteLine($"[LOADER][TRACE] reserve range: AllocateAt missing on {ctx.Memory.GetType().FullName}");
+                Log.Trace($"reserve range: AllocateAt missing on {ctx.Memory.GetType().FullName}");
                 return false;
             }
 
@@ -3942,7 +3945,7 @@ public static class KernelMemoryCompatExports
             if (result is not ulong allocated || allocated == 0)
             {
                 var resultType = result?.GetType().FullName ?? "null";
-                Console.Error.WriteLine($"[LOADER][TRACE] reserve range: AllocateAt returned {resultType} value={result ?? "null"}");
+                Log.Trace($"reserve range: AllocateAt returned {resultType} value={result ?? "null"}");
                 return false;
             }
 
@@ -3951,7 +3954,7 @@ public static class KernelMemoryCompatExports
         }
         catch
         {
-            Console.Error.WriteLine("[LOADER][TRACE] reserve range threw while invoking AllocateAt");
+            Log.Trace("reserve range threw while invoking AllocateAt");
             return false;
         }
     }
@@ -4345,6 +4348,7 @@ public static class KernelMemoryCompatExports
             writer.Advance(firstReadLength);
         }
 
+        Span<byte> one = stackalloc byte[1];
         while (offset < (ulong)limit)
         {
             var current = address + offset;
@@ -4376,7 +4380,6 @@ public static class KernelMemoryCompatExports
                 continue;
             }
 
-            Span<byte> one = stackalloc byte[1];
             if (!TryReadCompat(ctx, current, one))
             {
                 return false;
@@ -4661,8 +4664,8 @@ public static class KernelMemoryCompatExports
         var recoveryIndex = Interlocked.Increment(ref _hostMemoryReadFallbackCount);
         if (recoveryIndex <= 8)
         {
-            Console.Error.WriteLine(
-                $"[LOADER][WARNING] host-read fallback#{recoveryIndex}: addr=0x{address:X16} len=0x{destination.Length:X}");
+            Log.Warning(
+                $"host-read fallback#{recoveryIndex}: addr=0x{address:X16} len=0x{destination.Length:X}");
         }
 
         return true;
@@ -4727,8 +4730,8 @@ public static class KernelMemoryCompatExports
         var recoveryIndex = Interlocked.Increment(ref _hostMemoryWriteFallbackCount);
         if (recoveryIndex <= 8)
         {
-            Console.Error.WriteLine(
-                $"[LOADER][WARNING] host-write fallback#{recoveryIndex}: addr=0x{address:X16} len=0x{source.Length:X}");
+            Log.Warning(
+                $"host-write fallback#{recoveryIndex}: addr=0x{address:X16} len=0x{source.Length:X}");
         }
 
         return true;
@@ -5107,8 +5110,8 @@ public static class KernelMemoryCompatExports
             _ = ctx.TryReadUInt64(stackPointer, out returnRip);
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] {operation}: ret=0x{returnRip:X16} len=0x{length:X16} align=0x{alignment:X16} type=0x{memoryType:X8} out=0x{outAddress:X16} selected=0x{selectedAddress:X16} result={result?.ToString() ?? "<pending>"}");
+        Log.Trace(
+            $"{operation}: ret=0x{returnRip:X16} len=0x{length:X16} align=0x{alignment:X16} type=0x{memoryType:X8} out=0x{outAddress:X16} selected=0x{selectedAddress:X16} result={result?.ToString() ?? "<pending>"}");
     }
 
     private static bool ShouldTraceDirectMemory()
@@ -5867,7 +5870,7 @@ public static class KernelMemoryCompatExports
             return;
         }
 
-        Console.Error.WriteLine($"[LOADER][TRACE] {message}");
+        Log.Trace($"{message}");
     }
 
     private static void LogIoTrace(string operation, string path, string detail)
@@ -5884,7 +5887,7 @@ public static class KernelMemoryCompatExports
             return;
         }
 
-        Console.Error.WriteLine($"[LOADER][TRACE] {operation} path='{path}' {detail}");
+        Log.Trace($"{operation} path='{path}' {detail}");
     }
 
     private static void LogUniqueStatTrace(string guestPath, string hostPath, bool found)

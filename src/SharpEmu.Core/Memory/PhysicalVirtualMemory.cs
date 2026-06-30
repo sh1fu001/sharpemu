@@ -4,11 +4,13 @@
 using System.Runtime.InteropServices;
 using SharpEmu.Core.Loader;
 using SharpEmu.HLE;
+using SharpEmu.Logging;
 
 namespace SharpEmu.Core.Memory;
 
 public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryAllocator, IDisposable
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Vmem");
     private readonly ReaderWriterLockSlim _gate = new(LockRecursionPolicy.SupportsRecursion);
     private readonly object _guestAllocationGate = new();
     private readonly List<MemoryRegion> _regions = new();
@@ -96,7 +98,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
         }
 
         var allocationKind = executable ? "executable memory" : "data memory";
-        Console.Error.WriteLine($"[VMEM] Allocated exact {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes)");
+        Log.Info($"Allocated exact {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes)");
         return true;
     }
 
@@ -139,7 +141,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
                 throw new InvalidOperationException($"Failed to allocate exact mapping at 0x{desiredAddress:X16} ({alignedSize} bytes)");
             }
 
-            Console.Error.WriteLine($"[VMEM] Could not allocate at 0x{desiredAddress:X16}, trying any address...");
+            Log.Warning($"Could not allocate at 0x{desiredAddress:X16}, trying any address...");
             result = VirtualAlloc(null, (nuint)alignedSize, allocationType, protection);
 
             if (result == null)
@@ -193,12 +195,12 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
                     lazyPrimeState = committedBytes == primeBytes
                         ? $"ok:{committedBytes:X}"
                         : $"partial:{committedBytes:X}/{primeBytes:X}";
-                    Console.Error.WriteLine($"[VMEM] Primed lazy region: 0x{actualAddress:X16} - 0x{actualAddress + committedBytes:X16} ({committedBytes} bytes)");
+                    Log.Info($"Primed lazy region: 0x{actualAddress:X16} - 0x{actualAddress + committedBytes:X16} ({committedBytes} bytes)");
                 }
                 else
                 {
                     lazyPrimeState = $"fail:{primeBytes:X}";
-                    Console.Error.WriteLine($"[VMEM] Failed to prime lazy region at 0x{actualAddress:X16} ({primeBytes} bytes), continuing with on-demand commit");
+                    Log.Warning($"Failed to prime lazy region at 0x{actualAddress:X16} ({primeBytes} bytes), continuing with on-demand commit");
                 }
             }
             else
@@ -227,7 +229,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
         var allocationKind = reservedOnly
             ? "reserved data memory (lazy commit)"
             : (executable ? "executable memory" : "data memory");
-        Console.Error.WriteLine($"[VMEM] Allocated {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes) lazy_prime={lazyPrimeState}");
+        Log.Info($"Allocated {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes) lazy_prime={lazyPrimeState}");
 
         return actualAddress;
     }
@@ -390,7 +392,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
 
             ApplySegmentProtection(mapStart, mapEnd, protection);
 
-            Console.Error.WriteLine($"[VMEM] Mapped segment: 0x{virtualAddress:X16} - 0x{virtualAddress + memorySize:X16} (file: {fileData.Length} bytes, prot: {protection})");
+            Log.Info($"Mapped segment: 0x{virtualAddress:X16} - 0x{virtualAddress + memorySize:X16} (file: {fileData.Length} bytes, prot: {protection})");
         }
         finally
         {

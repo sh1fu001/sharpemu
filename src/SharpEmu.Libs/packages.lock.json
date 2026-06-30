@@ -89,6 +89,9 @@
       },
       "sharpemu.hle": {
         "type": "Project"
+      },
+      "sharpemu.logging": {
+        "type": "Project"
       }
     }
   }
