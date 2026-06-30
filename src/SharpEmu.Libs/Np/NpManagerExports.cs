@@ -4,10 +4,14 @@
 using SharpEmu.HLE;
 using System.Buffers.Binary;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Np;
 
 public static class NpManagerExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Np");
+
     private const int NpTitleIdSize = 16;
     private const int NpTitleSecretSize = 128;
 
@@ -138,6 +142,6 @@ public static class NpManagerExports
             return;
         }
 
-        Console.Error.WriteLine($"[LOADER][TRACE] np.{message}");
+        Log.Trace($"np.{message}");
     }
 }

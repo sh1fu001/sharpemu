@@ -6,10 +6,14 @@ using SharpEmu.Libs.Kernel;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Ampr;
 
 public static class AmprExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Ampr");
+
     private const int CommandBufferHeaderSize = 0x28;
     private const ulong CommandBufferSelfOffset = 0x00;
     private const ulong CommandBufferDataOffset = 0x08;
@@ -816,8 +820,8 @@ public static class AmprExports
 
         var returnRip = 0UL;
         _ = ctx.TryReadUInt64(ctx[CpuRegister.Rsp], out returnRip);
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] ampr.{operation}: cmd=0x{commandBuffer:X16} arg0=0x{arg0:X16} arg1=0x{arg1:X16} ret=0x{returnRip:X16}");
+        Log.Trace(
+            $"ampr.{operation}: cmd=0x{commandBuffer:X16} arg0=0x{arg0:X16} arg1=0x{arg1:X16} ret=0x{returnRip:X16}");
     }
 
     private static void TraceAmprRead(
@@ -838,7 +842,7 @@ public static class AmprExports
 
         var returnRip = 0UL;
         _ = ctx.TryReadUInt64(ctx[CpuRegister.Rsp], out returnRip);
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] ampr.read_file: cmd=0x{commandBuffer:X16} id=0x{fileId:X8} dst=0x{destination:X16} size=0x{size:X16} offset=0x{fileOffset:X16} read=0x{bytesRead:X16} result=0x{result:X8} path='{hostPath ?? string.Empty}' ret=0x{returnRip:X16}");
+        Log.Trace(
+            $"ampr.read_file: cmd=0x{commandBuffer:X16} id=0x{fileId:X8} dst=0x{destination:X16} size=0x{size:X16} offset=0x{fileOffset:X16} read=0x{bytesRead:X16} result=0x{result:X8} path='{hostPath ?? string.Empty}' ret=0x{returnRip:X16}");
     }
 }

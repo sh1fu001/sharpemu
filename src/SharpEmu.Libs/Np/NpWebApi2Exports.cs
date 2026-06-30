@@ -5,10 +5,14 @@ using System;
 using System.Threading;
 using SharpEmu.HLE;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Np;
 
 public static class NpWebApi2Exports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Np");
+
     private const int NpWebApi2ErrorInvalidArgument = unchecked((int)0x80553402);
 
     private static int _initialized;
@@ -59,7 +63,7 @@ public static class NpWebApi2Exports
             return;
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] npwebapi2.{operation} id={id} arg0=0x{arg0:X16} initialized={Volatile.Read(ref _initialized)}");
+        Log.Trace(
+            $"npwebapi2.{operation} id={id} arg0=0x{arg0:X16} initialized={Volatile.Read(ref _initialized)}");
     }
 }

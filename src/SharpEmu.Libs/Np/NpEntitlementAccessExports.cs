@@ -3,10 +3,14 @@
 
 using SharpEmu.HLE;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Np;
 
 public static class NpEntitlementAccessExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Np");
+
     private const int BootParamClearSize = 0x20;
 
     [SysAbiExport(
@@ -46,6 +50,6 @@ public static class NpEntitlementAccessExports
             return;
         }
 
-        Console.Error.WriteLine($"[LOADER][TRACE] np.entitlement.{message}");
+        Log.Trace($"np.entitlement.{message}");
     }
 }

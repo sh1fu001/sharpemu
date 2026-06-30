@@ -5,10 +5,14 @@ using SharpEmu.HLE;
 using System.Buffers.Binary;
 using System.Text;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.SaveData;
 
 public static class SaveDataExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("SaveData");
+
     private const int OrbisSaveDataErrorParameter = unchecked((int)0x809F0000);
     private const int OrbisSaveDataErrorInternal = unchecked((int)0x809F000B);
     private const int SaveDataTitleIdSize = 10;
@@ -423,7 +427,7 @@ public static class SaveDataExports
     {
         if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_SAVEDATA"), "1", StringComparison.Ordinal))
         {
-            Console.Error.WriteLine($"[LOADER][TRACE] savedata.{message}");
+            Log.Trace($"savedata.{message}");
         }
     }
 

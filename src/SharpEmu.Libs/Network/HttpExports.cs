@@ -5,10 +5,14 @@ using SharpEmu.HLE;
 using System.Collections.Concurrent;
 using System.Threading;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Network;
 
 public static class HttpExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Network");
+
     private const int HttpErrorInvalidId = unchecked((int)0x80431100);
     private const int HttpErrorInvalidValue = unchecked((int)0x804311FE);
 
@@ -116,7 +120,7 @@ public static class HttpExports
             return;
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] http.{operation} id={id} arg0=0x{arg0:X16} arg1=0x{arg1:X16} arg2=0x{arg2:X16} arg3=0x{arg3:X16}");
+        Log.Trace(
+            $"http.{operation} id={id} arg0=0x{arg0:X16} arg1=0x{arg1:X16} arg2=0x{arg2:X16} arg3=0x{arg3:X16}");
     }
 }

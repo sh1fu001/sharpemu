@@ -5,10 +5,14 @@ using SharpEmu.HLE;
 using System.Buffers.Binary;
 using System.Threading;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Kernel;
 
 public static class KernelEventQueueCompatExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Kernel");
+
     private const int KernelEventSize = 0x20;
     public const short KernelEventFilterGraphics = -14;
     public const short KernelEventFilterAmpr = -16;
@@ -602,8 +606,8 @@ public static class KernelEventQueueCompatExports
 
         var returnRip = 0UL;
         _ = ctx.TryReadUInt64(ctx[CpuRegister.Rsp], out returnRip);
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] equeue.{operation}: handle=0x{handle:X16} rsi=0x{ctx[CpuRegister.Rsi]:X16} rdx=0x{ctx[CpuRegister.Rdx]:X16} ret=0x{returnRip:X16}");
+        Log.Trace(
+            $"equeue.{operation}: handle=0x{handle:X16} rsi=0x{ctx[CpuRegister.Rsi]:X16} rdx=0x{ctx[CpuRegister.Rdx]:X16} ret=0x{returnRip:X16}");
     }
 
     private static bool TryWriteUInt32(CpuContext ctx, ulong address, uint value)

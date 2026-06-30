@@ -6,10 +6,14 @@ using System.Collections.Concurrent;
 using System.Text;
 using SharpEmu.HLE;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Kernel;
 
 public static class KernelSemaphoreCompatExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Kernel");
+
     private const int MaxSemaphoreNameLength = 128;
     private static readonly ConcurrentDictionary<uint, KernelSemaphoreState> _semaphores = new();
     private static int _nextSemaphoreHandle = 1;
@@ -312,7 +316,7 @@ public static class KernelSemaphoreCompatExports
     {
         if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_SEMA"), "1", StringComparison.Ordinal))
         {
-            Console.Error.WriteLine($"[LOADER][TRACE] sema.{message}");
+            Log.Trace($"sema.{message}");
         }
     }
 }

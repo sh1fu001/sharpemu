@@ -5,10 +5,14 @@ using System.Text;
 using System.Threading;
 using SharpEmu.HLE;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Share;
 
 public static class ShareExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Share");
+
     private const int MaxContentParamBytes = 4096;
 
     private static int _initialized;
@@ -107,6 +111,6 @@ public static class ShareExports
             return;
         }
 
-        Console.Error.WriteLine($"[LOADER][TRACE] share.{message}");
+        Log.Trace($"share.{message}");
     }
 }

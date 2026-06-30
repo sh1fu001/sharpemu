@@ -6,10 +6,14 @@ using System.Collections.Concurrent;
 using System.Text;
 using SharpEmu.HLE;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Fiber;
 
 public static class FiberExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Fiber");
+
     private const int MaxNameLength = 31;
     private const int FiberInfoSize = 128;
     private const int FiberContextMinimumSize = 512;
@@ -1000,7 +1004,7 @@ public static class FiberExports
     {
         if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_FIBER"), "1", StringComparison.Ordinal))
         {
-            Console.Error.WriteLine($"[LOADER][TRACE] fiber.{message}");
+            Log.Trace($"fiber.{message}");
         }
     }
 

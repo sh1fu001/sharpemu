@@ -7,10 +7,14 @@ using System.Buffers.Binary;
 using System.Threading;
 using System.Diagnostics.CodeAnalysis;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Kernel;
 
 public static class KernelPthreadCompatExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Kernel");
+
     private const int MutexTypeDefault = 0;
     private const int MutexTypeErrorCheck = 1;
     private const int MutexTypeRecursive = 2;
@@ -1403,8 +1407,8 @@ public static class KernelPthreadCompatExports
         }
 
         var currentThreadId = KernelPthreadState.GetCurrentThreadUniqueId();
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] pthread_self: stale_rdi=0x{ctx[CpuRegister.Rdi]:X16} thread=0x{currentThreadHandle:X16} tid=0x{currentThreadId:X16}");
+        Log.Trace(
+            $"pthread_self: stale_rdi=0x{ctx[CpuRegister.Rdi]:X16} thread=0x{currentThreadHandle:X16} tid=0x{currentThreadId:X16}");
     }
 
     private static void TracePthreadOnce(ulong onceAddress, ulong initRoutine, string operation, string? error)
@@ -1415,8 +1419,8 @@ public static class KernelPthreadCompatExports
         }
 
         var suffix = string.IsNullOrWhiteSpace(error) ? string.Empty : $" error={error}";
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] pthread_once_{operation}: once=0x{onceAddress:X16} init=0x{initRoutine:X16}{suffix}");
+        Log.Trace(
+            $"pthread_once_{operation}: once=0x{onceAddress:X16} init=0x{initRoutine:X16}{suffix}");
     }
 
     private static void TracePthreadMutex(CpuContext ctx, string operation, ulong mutexAddress, ulong resolvedAddress, PthreadMutexState? state, ulong currentThreadId, int result)
@@ -1428,8 +1432,8 @@ public static class KernelPthreadCompatExports
 
         _ = KernelMemoryCompatExports.TryReadUInt64Compat(ctx, mutexAddress, out var guestWord0);
         _ = KernelMemoryCompatExports.TryReadUInt64Compat(ctx, mutexAddress + 8, out var guestWord1);
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] pthread_{operation}: mutex=0x{mutexAddress:X16} resolved=0x{resolvedAddress:X16} " +
+        Log.Trace(
+            $"pthread_{operation}: mutex=0x{mutexAddress:X16} resolved=0x{resolvedAddress:X16} " +
             $"guest[0]=0x{guestWord0:X16} guest[8]=0x{guestWord1:X16} " +
             $"current=0x{currentThreadId:X16} owner=0x{(state?.OwnerThreadId ?? 0):X16} " +
             $"recursion={(state?.RecursionCount ?? 0)} type={(state?.Type ?? 0)} result=0x{unchecked((uint)result):X8}");
@@ -1442,8 +1446,8 @@ public static class KernelPthreadCompatExports
             return;
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] pthread_cond_{operation}: cond=0x{condAddress:X16} mutex=0x{mutexAddress:X16} " +
+        Log.Trace(
+            $"pthread_cond_{operation}: cond=0x{condAddress:X16} mutex=0x{mutexAddress:X16} " +
             $"waiters={(state?.Waiters ?? 0)} epoch=0x{(state?.SignalEpoch ?? 0):X} timed={timed} result=0x{unchecked((uint)result):X8}");
     }
 

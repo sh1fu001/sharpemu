@@ -4,10 +4,14 @@
 using SharpEmu.HLE;
 using System.Threading;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Kernel;
 
 public static class KernelExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Kernel");
+
     private static readonly object _cxaGate = new();
     private static readonly List<CxaDestructorEntry> _cxaDestructors = new();
     private static readonly object _coredumpGate = new();
@@ -55,7 +59,7 @@ public static class KernelExports
     public static int Exit(CpuContext ctx)
     {
         var status = unchecked((int)ctx[CpuRegister.Rdi]);
-        Console.Error.WriteLine($"[LOADER][INFO] exit(status={status})");
+        Log.Info($"exit(status={status})");
         GuestThreadExecution.RequestCurrentEntryExit("exit", status);
         ctx[CpuRegister.Rax] = unchecked((ulong)status);
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
@@ -69,7 +73,7 @@ public static class KernelExports
     public static int CatchReturnFromMain(CpuContext ctx)
     {
         var status = unchecked((int)ctx[CpuRegister.Rdi]);
-        Console.Error.WriteLine($"[LOADER][INFO] catchReturnFromMain(status={status})");
+        Log.Info($"catchReturnFromMain(status={status})");
         GuestThreadExecution.RequestCurrentEntryExit("catchReturnFromMain", status);
         ctx[CpuRegister.Rax] = unchecked((ulong)status);
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
@@ -220,8 +224,8 @@ public static class KernelExports
 
         if (ShouldTracePthread())
         {
-            Console.Error.WriteLine(
-                $"[LOADER][TRACE] pthread_create: out=0x{threadIdAddress:X16} attr=0x{attrAddress:X16} " +
+            Log.Trace(
+                $"pthread_create: out=0x{threadIdAddress:X16} attr=0x{attrAddress:X16} " +
                 $"entry=0x{entryAddress:X16} arg=0x{argument:X16} name_ptr=0x{nameAddress:X16} " +
                 $"name='{name}' priority={priority} affinity=0x{affinityMask:X} -> thread=0x{threadHandle:X16}");
         }
@@ -239,8 +243,8 @@ public static class KernelExports
                 affinityMask);
             if (!scheduler.TryStartThread(ctx, request, out var error))
             {
-                Console.Error.WriteLine(
-                    $"[LOADER][ERROR] pthread_create: failed to schedule guest thread '{name}' entry=0x{entryAddress:X16}: {error}");
+                Log.Error(
+                    $"pthread_create: failed to schedule guest thread '{name}' entry=0x{entryAddress:X16}: {error}");
                 ctx[CpuRegister.Rax] = unchecked((ulong)(int)OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN);
                 return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN;
             }
@@ -312,8 +316,8 @@ public static class KernelExports
 
         if (ShouldTracePthread())
         {
-            Console.Error.WriteLine(
-                $"[LOADER][TRACE] pthread_join: thread=0x{threadId:X16} retval_out=0x{returnValueAddress:X16}");
+            Log.Trace(
+                $"pthread_join: thread=0x{threadId:X16} retval_out=0x{returnValueAddress:X16}");
         }
 
         ctx[CpuRegister.Rax] = 0;

@@ -7,10 +7,14 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Threading;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Kernel;
 
 public static class KernelAprCompatExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Kernel");
+
     private static readonly ConcurrentDictionary<uint, AprSubmission> _submittedCommandBuffers = new();
     private static int _nextSubmissionId;
     private static int _aprWaitTraceCount;
@@ -200,14 +204,14 @@ public static class KernelAprCompatExports
 
         var returnRip = 0UL;
         _ = ctx.TryReadUInt64(ctx[CpuRegister.Rsp], out returnRip);
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] apr.{operation}: id=0x{submissionId:X8} cmd=0x{commandBuffer:X16} priority=0x{priority:X16} aux=0x{aux:X16} ret=0x{returnRip:X16}");
+        Log.Trace(
+            $"apr.{operation}: id=0x{submissionId:X8} cmd=0x{commandBuffer:X16} priority=0x{priority:X16} aux=0x{aux:X16} ret=0x{returnRip:X16}");
         if (aux != 0 &&
             ctx.TryReadUInt64(aux, out var result0) &&
             ctx.TryReadUInt64(aux + sizeof(ulong), out var result1))
         {
-            Console.Error.WriteLine(
-                $"[LOADER][TRACE] apr.{operation}.result: addr=0x{aux:X16} q0=0x{result0:X16} q1=0x{result1:X16}");
+            Log.Trace(
+                $"apr.{operation}.result: addr=0x{aux:X16} q0=0x{result0:X16} q1=0x{result1:X16}");
         }
     }
 
@@ -232,8 +236,8 @@ public static class KernelAprCompatExports
 
         var returnRip = 0UL;
         _ = ctx.TryReadUInt64(ctx[CpuRegister.Rsp], out returnRip);
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] apr.{operation}: id=0x{submissionId:X8} cmd=0x{commandBuffer:X16} " +
+        Log.Trace(
+            $"apr.{operation}: id=0x{submissionId:X8} cmd=0x{commandBuffer:X16} " +
             $"rsi=0x{priority:X16} rdx=0x{resultAddress:X16} rcx=0x{ctx[CpuRegister.Rcx]:X16} " +
             $"r8=0x{ctx[CpuRegister.R8]:X16} r9=0x{ctx[CpuRegister.R9]:X16} ret=0x{returnRip:X16}");
         TraceReadableQword(ctx, operation, "rsi", priority);
@@ -249,7 +253,7 @@ public static class KernelAprCompatExports
             return;
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] apr.{operation}.{name}: addr=0x{address:X16} q0=0x{value:X16}");
+        Log.Trace(
+            $"apr.{operation}.{name}: addr=0x{address:X16} q0=0x{value:X16}");
     }
 }

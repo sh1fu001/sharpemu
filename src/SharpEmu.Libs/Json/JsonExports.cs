@@ -4,10 +4,14 @@
 using System;
 using SharpEmu.HLE;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Json;
 
 public static class JsonExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Json");
+
     [SysAbiExport(
         Nid = "-hJRce8wn1U",
         ExportName = "_ZN3sce4Json12MemAllocatorC2Ev",
@@ -85,7 +89,7 @@ public static class JsonExports
             return;
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] json.{operation} this=0x{thisAddress:X16} arg=0x{argument:X16}");
+        Log.Trace(
+            $"json.{operation} this=0x{thisAddress:X16} arg=0x{argument:X16}");
     }
 }

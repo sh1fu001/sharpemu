@@ -7,10 +7,14 @@ using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.VideoOut;
 
 public static class VideoOutExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("VideoOut");
+
     private const int OrbisVideoOutErrorInvalidValue = unchecked((int)0x80290001);
     private const int OrbisVideoOutErrorInvalidAddress = unchecked((int)0x80290002);
     private const int OrbisVideoOutErrorResourceBusy = unchecked((int)0x80290009);
@@ -1262,6 +1266,6 @@ public static class VideoOutExports
             return;
         }
 
-        Console.Error.WriteLine($"[LOADER][TRACE] {message}");
+        Log.Trace($"{message}");
     }
 }

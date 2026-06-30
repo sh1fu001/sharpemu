@@ -6,10 +6,14 @@ using System.Buffers.Binary;
 using System.Text;
 using System.Text.Json;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.AppContent;
 
 public static class AppContentExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("AppContent");
+
     private const ulong BootParamAttrOffset = 4;
     private const string Temp0MountPoint = "/temp0";
     private const uint AppParamSkuFlag = 0;
@@ -181,7 +185,7 @@ public static class AppContentExports
             return;
         }
 
-        Console.Error.WriteLine($"[LOADER][TRACE] app_content.{message}");
+        Log.Trace($"app_content.{message}");
     }
 
     private static string ResolveTemp0Root()

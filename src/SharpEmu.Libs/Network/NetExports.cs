@@ -8,10 +8,14 @@ using System.Text;
 using System.Threading;
 using SharpEmu.HLE;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Network;
 
 public static class NetExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Network");
+
     private const int NetErrorBadFileDescriptor = unchecked((int)0x80410109);
     private const int NetErrorInvalidArgument = unchecked((int)0x80410116);
     private const int MaxNameLength = 256;
@@ -204,7 +208,7 @@ public static class NetExports
             return;
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] net.{operation} id={id} arg0=0x{arg0:X16} arg1=0x{arg1:X16} arg2=0x{arg2:X16}");
+        Log.Trace(
+            $"net.{operation} id={id} arg0=0x{arg0:X16} arg1=0x{arg1:X16} arg2=0x{arg2:X16}");
     }
 }

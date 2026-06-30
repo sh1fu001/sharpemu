@@ -6,10 +6,14 @@ using System.Collections.Concurrent;
 using System.Threading;
 using SharpEmu.HLE;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Network;
 
 public static class SslExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Network");
+
     private const int SslErrorInvalidId = unchecked((int)0x8095F006);
     private const int SslErrorOutOfSize = unchecked((int)0x8095F008);
 
@@ -81,7 +85,7 @@ public static class SslExports
             return;
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] ssl.{operation} id={id} arg0=0x{arg0:X16}");
+        Log.Trace(
+            $"ssl.{operation} id={id} arg0=0x{arg0:X16}");
     }
 }

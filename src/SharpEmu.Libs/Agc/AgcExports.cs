@@ -7,10 +7,14 @@ using SharpEmu.Libs.VideoOut;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.Agc;
 
 public static class AgcExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Agc");
+
     private const uint ShaderFileHeader = 0x34333231;
     private const uint ShaderVersion = 0x18;
     private const uint ItNop = 0x10;
@@ -3071,7 +3075,7 @@ public static class AgcExports
             return;
         }
 
-        Console.Error.WriteLine($"[LOADER][TRACE] {message}");
+        Log.Trace($"{message}");
     }
 
     private static void TraceCreateShader(ulong destinationAddress, ulong headerAddress, ulong codeAddress, string detail)
@@ -3084,7 +3088,7 @@ public static class AgcExports
             return;
         }
 
-        Console.Error.WriteLine(
-            $"[LOADER][TRACE] agc.create_shader dst=0x{destinationAddress:X16} header=0x{headerAddress:X16} code=0x{codeAddress:X16} {detail}");
+        Log.Trace(
+            $"agc.create_shader dst=0x{destinationAddress:X16} header=0x{headerAddress:X16} code=0x{codeAddress:X16} {detail}");
     }
 }

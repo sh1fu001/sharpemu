@@ -10,6 +10,8 @@ using Silk.NET.Windowing;
 using VkBuffer = Silk.NET.Vulkan.Buffer;
 using VkSemaphore = Silk.NET.Vulkan.Semaphore;
 
+using SharpEmu.Logging;
+
 namespace SharpEmu.Libs.VideoOut;
 
 internal enum GuestDrawKind
@@ -20,6 +22,8 @@ internal enum GuestDrawKind
 
 internal static unsafe class VulkanVideoPresenter
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("VideoOut");
+
     private static readonly object _gate = new();
     private static Thread? _thread;
     private static Presentation? _latestPresentation;
@@ -106,7 +110,7 @@ internal static unsafe class VulkanVideoPresenter
                 sequence,
                 GuestDrawKind.None,
                 IsSplash: false);
-            Console.Error.WriteLine("[LOADER][INFO] Vulkan VideoOut hid splash");
+            Log.Info("Vulkan VideoOut hid splash");
         }
     }
 
@@ -225,7 +229,7 @@ internal static unsafe class VulkanVideoPresenter
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine($"[LOADER][ERROR] Vulkan VideoOut presenter failed: {exception.Message}");
+            Log.Error($"Vulkan VideoOut presenter failed: {exception.Message}");
         }
         finally
         {
@@ -335,8 +339,8 @@ internal static unsafe class VulkanVideoPresenter
             CreateCommandResources();
             CreateGuestDrawResources();
             _vulkanReady = true;
-            Console.Error.WriteLine(
-                $"[LOADER][INFO] Vulkan VideoOut ready: {_extent.Width}x{_extent.Height}, format={_swapchainFormat}");
+            Log.Info(
+                $"Vulkan VideoOut ready: {_extent.Width}x{_extent.Height}, format={_swapchainFormat}");
         }
 
         private void CreateInstance()
@@ -939,23 +943,23 @@ internal static unsafe class VulkanVideoPresenter
             if (presentation.IsSplash && !_splashPresented)
             {
                 _splashPresented = true;
-                Console.Error.WriteLine(
-                    $"[LOADER][INFO] Vulkan VideoOut presented splash: " +
+                Log.Info(
+                    $"Vulkan VideoOut presented splash: " +
                     $"{presentation.Width}x{presentation.Height}");
             }
             else if (!presentation.IsSplash && !_firstFramePresented)
             {
                 _firstFramePresented = true;
-                Console.Error.WriteLine(
-                    $"[LOADER][INFO] Vulkan VideoOut presented first frame: " +
+                Log.Info(
+                    $"Vulkan VideoOut presented first frame: " +
                     $"{presentation.Width}x{presentation.Height}");
             }
 
             if (pixels is null && !_firstGuestDrawPresented)
             {
                 _firstGuestDrawPresented = true;
-                Console.Error.WriteLine(
-                    $"[LOADER][INFO] Vulkan VideoOut presented translated guest draw: " +
+                Log.Info(
+                    $"Vulkan VideoOut presented translated guest draw: " +
                     $"{presentation.DrawKind}");
             }
         }
