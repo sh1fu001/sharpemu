@@ -23,6 +23,24 @@ SPDX-License-Identifier: GPL-2.0-or-later
     <PublishDir>$(RepoRoot)artifacts/publish/$(MSBuildProjectName)/$(Configuration)/$(TargetFramework)/</PublishDir>
   </PropertyGroup>
 
+  <!--
+    Runtime performance tuning. These flow into the app's runtimeconfig.json.
+    - Server GC + background (concurrent) GC: higher throughput on the emulator's
+      many worker/guest threads while keeping GC pauses short for frame pacing.
+    - Dynamic PGO: re-JITs hot methods with profile data; large steady-state win.
+    - Invariant globalization: drops the ICU dependency and speeds startup; the
+      emulator has no localization needs.
+    Toggle ServerGarbageCollection to false if memory footprint matters more than
+    throughput on a given machine.
+  -->
+  <PropertyGroup>
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <TieredCompilation>true</TieredCompilation>
+    <TieredPGO>true</TieredPGO>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
     <PublishDir>$(RepoRoot)artifacts/publish/$(MSBuildProjectName)/$(Configuration)/$(TargetFramework)/$(RuntimeIdentifier)/</PublishDir>
   </PropertyGroup>
