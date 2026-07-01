@@ -1765,6 +1765,7 @@ public static class AgcExports
             TraceAgc($"agc.driver_submit_dcb packet=0x{packetAddress:X16} addr=0x{commandAddress:X16} dwords={dwordCount}");
         }
 
+        RunDiagnostics.RecordGpuSubmit("dcb", commandAddress, dwordCount, 0);
         var gpuState = _submittedGpuStates.GetValue(ctx.Memory, static _ => new SubmittedGpuState());
         lock (gpuState.Gate)
         {
@@ -1807,6 +1808,7 @@ public static class AgcExports
                 $"addr=0x{commandAddress:X16} dwords={dwordCount}");
         }
 
+        RunDiagnostics.RecordGpuSubmit("acb", commandAddress, dwordCount, ownerHandle);
         var gpuState = _submittedGpuStates.GetValue(ctx.Memory, static _ => new SubmittedGpuState());
         lock (gpuState.Gate)
         {

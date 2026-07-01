@@ -40,6 +40,9 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
     private readonly CpuExecutionOptions _cpuExecutionOptions;
     private readonly IFileSystem _fileSystem;
     private bool _disposed;
+    private string? _lastTitle;
+    private string? _lastTitleId;
+    private string? _lastVersion;
 
     public string? LastExecutionDiagnostics { get; private set; }
 
@@ -138,8 +141,15 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         LastSessionSummary = null;
         LastBasicBlockTrace = null;
         LastMilestoneLog = null;
+        _lastTitle = null;
+        _lastTitleId = null;
+        _lastVersion = null;
+        RunDiagnostics.Reset();
         KernelModuleRegistry.Reset();
         var image = LoadImage(normalizedEbootPath);
+        _lastTitle = image.Title;
+        _lastTitleId = image.TitleId;
+        _lastVersion = image.Version;
         VideoOutExports.ConfigureApplicationInfo(image.Title, image.TitleId, image.Version);
         SaveDataExports.ConfigureApplicationInfo(image.TitleId);
         RegisterLoadedModule(normalizedEbootPath, image, isMain: true, isSystemModule: false);
@@ -1004,6 +1014,64 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         }
 
         return text;
+    }
+
+    public DiagnosticsSession CaptureDiagnostics(OrbisGen2Result? result)
+    {
+        return new DiagnosticsSession
+        {
+            TitleId = string.IsNullOrWhiteSpace(_lastTitleId) ? "UNKNOWN" : _lastTitleId!,
+            Title = _lastTitle,
+            Version = _lastVersion,
+            Result = result,
+            DiagnosticsText = LastExecutionDiagnostics,
+            SessionSummary = LastSessionSummary,
+            MilestoneLog = LastMilestoneLog,
+            ImportTrace = LastExecutionTrace,
+            Crash = BuildCrashContext(result),
+            MemoryRegions = _virtualMemory.SnapshotRegions(),
+        };
+    }
+
+    private DiagnosticsCrashContext? BuildCrashContext(OrbisGen2Result? result)
+    {
+        if (result == OrbisGen2Result.ORBIS_GEN2_ERROR_CPU_TRAP && _cpuDispatcher.LastTrapInfo is { } trap)
+        {
+            return new DiagnosticsCrashContext(
+                "CpuTrap", trap.InstructionPointer, trap.Opcode, null, null, null, null, null, null, null);
+        }
+
+        if (result == OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT && _cpuDispatcher.LastMemoryFaultInfo is { } fault)
+        {
+            return new DiagnosticsCrashContext(
+                "MemoryFault",
+                fault.InstructionPointer,
+                fault.Opcode,
+                fault.Access.Address,
+                fault.Access.Size,
+                fault.Access.IsWrite,
+                null, null, null, null);
+        }
+
+        if (result == OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_IMPLEMENTED && _cpuDispatcher.LastNotImplementedInfo is { } notImplemented)
+        {
+            var nid = notImplemented.Nid;
+            var exportName = notImplemented.ExportName;
+            var libraryName = notImplemented.LibraryName;
+            if (!string.IsNullOrWhiteSpace(nid) && _moduleManager.TryGetExport(nid, out var export))
+            {
+                exportName = string.IsNullOrWhiteSpace(exportName) ? export.Name : exportName;
+                libraryName = string.IsNullOrWhiteSpace(libraryName) ? export.LibraryName : libraryName;
+            }
+
+            return new DiagnosticsCrashContext(
+                "NotImplemented",
+                notImplemented.InstructionPointer,
+                null, null, null, null,
+                nid, exportName, libraryName, notImplemented.Detail);
+        }
+
+        return null;
     }
 
     public OrbisGen2Result DispatchHleCall(string nid, CpuContext context)

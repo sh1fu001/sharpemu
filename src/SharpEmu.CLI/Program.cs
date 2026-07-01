@@ -35,7 +35,7 @@ internal static partial class Program
             return childExitCode;
         }
 
-        if (!TryParseArguments(args, out var ebootPath, out var runtimeOptions, out var logLevel))
+        if (!TryParseArguments(args, out var ebootPath, out var runtimeOptions, out var logLevel, out var enableDiagnostics))
         {
             PrintUsage();
             return 1;
@@ -45,7 +45,7 @@ internal static partial class Program
 
         ebootPath = Path.GetFullPath(ebootPath);
         Console.Error.WriteLine($"[DEBUG] Full path: {ebootPath}");
-        
+
         if (!File.Exists(ebootPath))
         {
             Log.Error($"EBOOT file was not found: {ebootPath}");
@@ -56,49 +56,103 @@ internal static partial class Program
 
         using var runtime = SharpEmuRuntime.CreateDefault(runtimeOptions);
 
-        OrbisGen2Result result;
+        var startedAt = DateTimeOffset.Now;
+        var capture = enableDiagnostics ? BootLogCapture.Start() : null;
+        OrbisGen2Result? result = null;
+        Exception? hostException = null;
         try
         {
             Console.Error.WriteLine($"[DEBUG] Running: {ebootPath}");
-            result = runtime.Run(ebootPath);
-            Console.Error.WriteLine($"[DEBUG] Result: {result}");
+            var runResult = runtime.Run(ebootPath);
+            result = runResult;
+            Console.Error.WriteLine($"[DEBUG] Result: {runResult}");
+
+            Log.Info($"SharpEmu execution completed. Result={runResult} (0x{(int)runResult:X8})");
+            if (!string.IsNullOrWhiteSpace(runtime.LastSessionSummary))
+            {
+                Log.Info(runtime.LastSessionSummary);
+            }
+
+            if (!string.IsNullOrWhiteSpace(runtime.LastBasicBlockTrace))
+            {
+                Log.Info("BB trace:");
+                Log.Info(runtime.LastBasicBlockTrace);
+            }
+
+            if (!string.IsNullOrWhiteSpace(runtime.LastMilestoneLog))
+            {
+                Log.Info(runtime.LastMilestoneLog);
+            }
+
+            if (runResult != OrbisGen2Result.ORBIS_GEN2_OK && !string.IsNullOrWhiteSpace(runtime.LastExecutionDiagnostics))
+            {
+                Log.Warn(runtime.LastExecutionDiagnostics);
+            }
+
+            if (runtimeOptions.ImportTraceLimit > 0 && !string.IsNullOrWhiteSpace(runtime.LastExecutionTrace))
+            {
+                Log.Info("Import trace:");
+                Log.Info(runtime.LastExecutionTrace);
+            }
         }
         catch (Exception ex)
         {
+            hostException = ex;
             Console.Error.WriteLine($"[DEBUG] Exception: {ex}");
             Log.Error("SharpEmu failed to run.", ex);
+        }
+        finally
+        {
+            if (capture is not null)
+            {
+                TryWriteDiagnosticsSession(runtime, result, startedAt, args, capture, hostException);
+            }
+        }
+
+        if (hostException is not null)
+        {
             return 3;
         }
 
-        Log.Info($"SharpEmu execution completed. Result={result} (0x{(int)result:X8})");
-        if (!string.IsNullOrWhiteSpace(runtime.LastSessionSummary))
-        {
-            Log.Info(runtime.LastSessionSummary);
-        }
-
-        if (!string.IsNullOrWhiteSpace(runtime.LastBasicBlockTrace))
-        {
-            Log.Info("BB trace:");
-            Log.Info(runtime.LastBasicBlockTrace);
-        }
-
-        if (!string.IsNullOrWhiteSpace(runtime.LastMilestoneLog))
-        {
-            Log.Info(runtime.LastMilestoneLog);
-        }
-
-        if (result != OrbisGen2Result.ORBIS_GEN2_OK && !string.IsNullOrWhiteSpace(runtime.LastExecutionDiagnostics))
-        {
-            Log.Warn(runtime.LastExecutionDiagnostics);
-        }
-
-        if (runtimeOptions.ImportTraceLimit > 0 && !string.IsNullOrWhiteSpace(runtime.LastExecutionTrace))
-        {
-            Log.Info("Import trace:");
-            Log.Info(runtime.LastExecutionTrace);
-        }
-
         return result == OrbisGen2Result.ORBIS_GEN2_OK ? 0 : 4;
+    }
+
+    private static void TryWriteDiagnosticsSession(
+        ISharpEmuRuntime runtime,
+        OrbisGen2Result? result,
+        DateTimeOffset startedAt,
+        string[] args,
+        BootLogCapture capture,
+        Exception? hostException)
+    {
+        try
+        {
+            var bootLog = capture.ReadCapturedText();
+            // Restore the real console before logging the outcome so the "written to ..." line is not
+            // itself captured into a file we already closed.
+            capture.Dispose();
+
+            var session = runtime.CaptureDiagnostics(result);
+            session.StartedAt = startedAt;
+            session.CommandLine = string.Join(' ', args);
+            session.BootLogText = bootLog;
+            session.HostExceptionText = hostException?.ToString();
+
+            var directory = DiagnosticsSessionWriter.TryWrite(session, out var error);
+            if (directory is not null)
+            {
+                Log.Info($"Diagnostics session written to {directory}");
+            }
+            else
+            {
+                Log.Warn($"Failed to write diagnostics session: {error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            capture.Dispose();
+            Log.Warn($"Diagnostics session capture failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private static string[] NormalizeInternalArguments(string[] args, out bool isMitigatedChild)
@@ -373,7 +427,7 @@ internal static partial class Program
 
     private static void PrintUsage()
     {
-        Log.Info("Usage: SharpEmu.CLI [--strict] [--trace-imports[=N]] [--cpu-engine=<native>] [--log-level=<level>] <path-to-eboot.bin>");
+        Log.Info("Usage: SharpEmu.CLI [--strict] [--trace-imports[=N]] [--cpu-engine=<native>] [--log-level=<level>] [--no-diagnostics] <path-to-eboot.bin>");
         Log.Info(@"Example: SharpEmu.CLI --cpu-engine=native --trace-imports=64 --log-level=debug ""E:\Games\...\eboot.bin""");
     }
 
@@ -381,8 +435,13 @@ internal static partial class Program
         string[] args,
         out string ebootPath,
         out SharpEmuRuntimeOptions runtimeOptions,
-        out LogLevel logLevel)
+        out LogLevel logLevel,
+        out bool enableDiagnostics)
     {
+        enableDiagnostics = !string.Equals(
+            Environment.GetEnvironmentVariable("SHARPEMU_NO_DIAGNOSTICS"),
+            "1",
+            StringComparison.Ordinal);
         if (args.Length == 0)
         {
             ebootPath = string.Empty;
@@ -402,6 +461,18 @@ internal static partial class Program
             if (string.Equals(argument, "--strict", StringComparison.OrdinalIgnoreCase))
             {
                 strictDynlibResolution = true;
+                continue;
+            }
+
+            if (string.Equals(argument, "--no-diagnostics", StringComparison.OrdinalIgnoreCase))
+            {
+                enableDiagnostics = false;
+                continue;
+            }
+
+            if (string.Equals(argument, "--diagnostics", StringComparison.OrdinalIgnoreCase))
+            {
+                enableDiagnostics = true;
                 continue;
             }
 

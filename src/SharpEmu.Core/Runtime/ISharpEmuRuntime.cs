@@ -22,5 +22,7 @@ public interface ISharpEmuRuntime : IDisposable
 
     OrbisGen2Result Run(string ebootPath);
 
+    DiagnosticsSession CaptureDiagnostics(OrbisGen2Result? result);
+
     OrbisGen2Result DispatchHleCall(string nid, CpuContext context);
 }

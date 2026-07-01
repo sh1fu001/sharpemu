@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using SharpEmu.Core.Cpu;
 using SharpEmu.HLE;
+using SharpEmu.Logging;
 
 namespace SharpEmu.Core.Cpu.Native;
 
@@ -366,6 +367,7 @@ public sealed partial class DirectExecutionBackend
 			if (!dispatchResolved)
 			{
 				LastError = "Missing HLE export for NID: " + importStubEntry.Nid;
+				RunDiagnostics.RecordMissingImport(importStubEntry.Nid, matchedExport?.LibraryName, matchedExport?.Name, num7);
 				Console.Error.WriteLine(
 					$"[LOADER][WARN] Import#{num} unresolved: nid={importStubEntry.Nid} ret=0x{num7:X16} " +
 					$"rdi=0x{value:X16} rsi=0x{value2:X16} rdx=0x{num3:X16} rcx=0x{num4:X16} r8=0x{num5:X16} r9=0x{num6:X16}");
@@ -1196,6 +1198,12 @@ public sealed partial class DirectExecutionBackend
 		}
 
 		var syscallNumber = cpuContext[CpuRegister.Rax];
+		RunDiagnostics.RecordSyscall(
+			syscallNumber,
+			cpuContext[CpuRegister.Rdi],
+			cpuContext[CpuRegister.Rsi],
+			cpuContext[CpuRegister.Rdx],
+			cpuContext[CpuRegister.R10]);
 		Console.Error.WriteLine(
 			$"[LOADER][TRACE] payload_syscall n=0x{syscallNumber:X} ({syscallNumber}) " +
 			$"a1=0x{cpuContext[CpuRegister.Rdi]:X16} a2=0x{cpuContext[CpuRegister.Rsi]:X16} " +
