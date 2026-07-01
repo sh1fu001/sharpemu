@@ -618,6 +618,28 @@ public static class KernelRuntimeCompatExports
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
 
+    [SysAbiExport(
+        Nid = "__hle_getargc",
+        ExportName = "getargc",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int GetArgc(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = 1;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_getargv",
+        ExportName = "getargv",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int GetArgv(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = HleDataSymbols.TryGetProcessArgv(out var address) ? address : 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
     internal static bool TrySetErrno(CpuContext ctx, int value)
     {
         var address = GetTlsScratchAddress(ctx, TlsErrnoOffset);

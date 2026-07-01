@@ -282,6 +282,69 @@ public static class KernelSemaphoreCompatExports
         return ctx.Memory.TryWrite(address, buffer);
     }
 
+    [SysAbiExport(
+        Nid = "__hle_sem_init",
+        ExportName = "sem_init",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixSemInit(CpuContext ctx) => SetPosixSuccess(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_sem_destroy",
+        ExportName = "sem_destroy",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixSemDestroy(CpuContext ctx) => SetPosixSuccess(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_sem_post",
+        ExportName = "sem_post",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixSemPost(CpuContext ctx) => SetPosixSuccess(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_sem_wait",
+        ExportName = "sem_wait",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixSemWait(CpuContext ctx) => SetPosixSuccess(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_sem_trywait",
+        ExportName = "sem_trywait",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixSemTryWait(CpuContext ctx) => SetPosixSuccess(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_sem_timedwait",
+        ExportName = "sem_timedwait",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixSemTimedWait(CpuContext ctx) => SetPosixSuccess(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_sem_getvalue",
+        ExportName = "sem_getvalue",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixSemGetValue(CpuContext ctx)
+    {
+        var outputAddress = ctx[CpuRegister.Rsi];
+        if (outputAddress != 0)
+        {
+            _ = TryWriteUInt32(ctx, outputAddress, 1);
+        }
+        return SetPosixSuccess(ctx);
+    }
+
+    private static int SetPosixSuccess(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
     private static bool TryReadNullTerminatedUtf8(CpuContext ctx, ulong address, int maxLength, out string value)
     {
         value = string.Empty;

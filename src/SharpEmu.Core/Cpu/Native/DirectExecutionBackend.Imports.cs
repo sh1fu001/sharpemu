@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -118,6 +119,8 @@ public sealed partial class DirectExecutionBackend
 		cpuContext[CpuRegister.R13] = *(ulong*)(argPackPtr + 72);
 		cpuContext[CpuRegister.R14] = *(ulong*)(argPackPtr + 80);
 		cpuContext[CpuRegister.R15] = *(ulong*)(argPackPtr + 88);
+		cpuContext[CpuRegister.R10] = *(ulong*)(argPackPtr - 32);
+		cpuContext[CpuRegister.Rax] = *(ulong*)(argPackPtr - 24);
 		cpuContext.SetXmmRegister(
 			0,
 			*(ulong*)(argPackPtr - 16),
@@ -137,20 +140,6 @@ public sealed partial class DirectExecutionBackend
 		ulong value8 = cpuContext[CpuRegister.R15];
 		ulong num7 = *(ulong*)(argPackPtr + 96);
 		var isGuestWorker = GuestThreadExecution.IsGuestThread;
-		if (!IsLikelyReturnAddress(num7))
-		{
-			for (int i = 1; i <= 4; i++)
-			{
-				ulong num8 = *(ulong*)(argPackPtr + 96 + i * 8);
-				if (IsLikelyReturnAddress(num8))
-				{
-					*(ulong*)(argPackPtr + 96) = num8;
-					num7 = num8;
-					Console.Error.WriteLine($"[LOADER][WARNING] Import#{num}: corrected suspicious return RIP using stack slot +0x{i * 8:X} -> 0x{num7:X16}");
-					break;
-				}
-			}
-		}
 		if (_activeGuestThreadState is { } activeGuestThreadState)
 		{
 			Interlocked.Increment(ref activeGuestThreadState.ImportCount);
@@ -341,6 +330,10 @@ public sealed partial class DirectExecutionBackend
 				else if (string.Equals(importStubEntry.Nid, RuntimeStubNids.KernelDynlibDlsym, StringComparison.Ordinal))
 				{
 					orbisGen2Result = DispatchKernelDynlibDlsym();
+				}
+				else if (string.Equals(importStubEntry.Nid, RuntimeStubNids.PayloadSyscall, StringComparison.Ordinal))
+				{
+					orbisGen2Result = DispatchPayloadSyscall();
 				}
 				else if (importStubEntry.Export is { } cachedExport &&
 					(cachedExport.Target & cpuContext.TargetGeneration) != 0)
@@ -1129,25 +1122,124 @@ public sealed partial class DirectExecutionBackend
 		{
 			return OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
 		}
-		ulong symbolNameAddress = cpuContext[CpuRegister.Rsi];
-		ulong outputAddress = cpuContext[CpuRegister.Rdx];
+		ulong symbolNameAddress = cpuContext[CpuRegister.Rdx];
 		if (!TryReadAsciiZ(symbolNameAddress, 512, out var symbolName))
 		{
-			cpuContext[CpuRegister.Rax] = 18446744073709551615uL;
+			cpuContext[CpuRegister.Rax] = 0uL;
+			return OrbisGen2Result.ORBIS_GEN2_OK;
+		}
+		if (HleDataSymbols.TryGetAddress(symbolName, out var dataAddress))
+		{
+			cpuContext[CpuRegister.Rax] = dataAddress;
+			return OrbisGen2Result.ORBIS_GEN2_OK;
+		}
+		foreach (var importEntry in _importEntries)
+		{
+			if (string.Equals(importEntry.Nid, symbolName, StringComparison.Ordinal))
+			{
+				cpuContext[CpuRegister.Rax] = importEntry.Address;
+				return OrbisGen2Result.ORBIS_GEN2_OK;
+			}
+		}
+		if (TryResolveDynamicHleSymbol(symbolName, out var dynamicAddress))
+		{
+			cpuContext[CpuRegister.Rax] = dynamicAddress;
 			return OrbisGen2Result.ORBIS_GEN2_OK;
 		}
 		if (!TryResolveRuntimeSymbolAddress(symbolName, out var resolvedAddress))
 		{
-			cpuContext[CpuRegister.Rax] = 18446744073709551615uL;
+			cpuContext[CpuRegister.Rax] = 0uL;
 			return OrbisGen2Result.ORBIS_GEN2_OK;
 		}
-		if (outputAddress == 0L || !TryWriteUInt64Compat(outputAddress, resolvedAddress))
-		{
-			cpuContext[CpuRegister.Rax] = 18446744073709551615uL;
-			return OrbisGen2Result.ORBIS_GEN2_OK;
-		}
-		cpuContext[CpuRegister.Rax] = 0uL;
+		cpuContext[CpuRegister.Rax] = resolvedAddress;
 		return OrbisGen2Result.ORBIS_GEN2_OK;
+	}
+
+	private bool TryResolveDynamicHleSymbol(string symbolName, out ulong address)
+	{
+		lock (_dynamicImportGate)
+		{
+			if (_dynamicImportAddresses.TryGetValue(symbolName, out address))
+			{
+				return true;
+			}
+			if (!TryGetExportForImport(symbolName, out var export))
+			{
+				address = 0;
+				return false;
+			}
+
+			var importIndex = _importEntries.Length;
+			var trampoline = CreateImportHandlerTrampoline(importIndex);
+			if (trampoline == 0)
+			{
+				address = 0;
+				return false;
+			}
+
+			Array.Resize(ref _importEntries, importIndex + 1);
+			address = unchecked((ulong)trampoline);
+			_importEntries[importIndex] = new ImportStubEntry(address, symbolName, export);
+			_dynamicImportAddresses[symbolName] = address;
+			Console.Error.WriteLine(
+				$"[LOADER][INFO] Dynamic HLE symbol: {symbolName} -> {export.LibraryName}:{export.Name} @0x{address:X16}");
+			return true;
+		}
+	}
+
+	private OrbisGen2Result DispatchPayloadSyscall()
+	{
+		var cpuContext = ActiveCpuContext;
+		if (cpuContext == null)
+		{
+			return OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+		}
+
+		var syscallNumber = cpuContext[CpuRegister.Rax];
+		Console.Error.WriteLine(
+			$"[LOADER][TRACE] payload_syscall n=0x{syscallNumber:X} ({syscallNumber}) " +
+			$"a1=0x{cpuContext[CpuRegister.Rdi]:X16} a2=0x{cpuContext[CpuRegister.Rsi]:X16} " +
+			$"a3=0x{cpuContext[CpuRegister.Rdx]:X16} a4=0x{cpuContext[CpuRegister.R10]:X16} " +
+			$"a5=0x{cpuContext[CpuRegister.R8]:X16} a6=0x{cpuContext[CpuRegister.R9]:X16}");
+
+		if (syscallNumber == 202 && DispatchPayloadSysctl(cpuContext))
+		{
+			return OrbisGen2Result.ORBIS_GEN2_OK;
+		}
+		if (syscallNumber == 20)
+		{
+			cpuContext[CpuRegister.Rax] = 1;
+			return OrbisGen2Result.ORBIS_GEN2_OK;
+		}
+
+		cpuContext[CpuRegister.Rax] = unchecked((ulong)-1L);
+		return OrbisGen2Result.ORBIS_GEN2_OK;
+	}
+
+	private bool DispatchPayloadSysctl(CpuContext cpuContext)
+	{
+		var mibAddress = cpuContext[CpuRegister.Rdi];
+		var mibLength = cpuContext[CpuRegister.Rsi];
+		var outputAddress = cpuContext[CpuRegister.Rdx];
+		var outputLengthAddress = cpuContext[CpuRegister.R10];
+		if (mibLength != 2 ||
+			!TryReadUInt32Compat(mibAddress, out var category) ||
+			!TryReadUInt32Compat(mibAddress + sizeof(uint), out var item) ||
+			category != 1 ||
+			item != 46 ||
+			outputAddress == 0 ||
+			!TryWriteUInt32Compat(outputAddress, 0x10000000))
+		{
+			cpuContext[CpuRegister.Rax] = unchecked((ulong)-1L);
+			return true;
+		}
+
+		if (outputLengthAddress != 0)
+		{
+			_ = TryWriteUInt64Compat(outputLengthAddress, sizeof(uint));
+		}
+		cpuContext[CpuRegister.Rax] = 0;
+		return true;
 	}
 
 	private OrbisGen2Result DispatchBootstrapBridge()
@@ -1163,10 +1255,15 @@ public sealed partial class DirectExecutionBackend
 		ulong outputAddress = cpuContext[CpuRegister.Rdx];
 		_ = TryReadAsciiZ(symbolNameAddress, 512, out var symbolName);
 
-		OrbisGen2Result result = DispatchKernelDynlibDlsym();
-		if (result != OrbisGen2Result.ORBIS_GEN2_OK)
+		if (!TryResolveRuntimeSymbolAddress(symbolName, out var resolvedAddress) ||
+			outputAddress == 0 ||
+			!TryWriteUInt64Compat(outputAddress, resolvedAddress))
 		{
-			return result;
+			cpuContext[CpuRegister.Rax] = 18446744073709551615uL;
+		}
+		else
+		{
+			cpuContext[CpuRegister.Rax] = 0uL;
 		}
 		if (_logBootstrap)
 		{
@@ -1190,6 +1287,13 @@ public sealed partial class DirectExecutionBackend
 		if (string.IsNullOrWhiteSpace(symbolName))
 		{
 			return false;
+		}
+		if (string.Equals(symbolName, "sceKernelDlsym", StringComparison.Ordinal) &&
+			_runtimeSymbolsByName.TryGetValue("kernel_dynlib_dlsym", out var dlsymAddress) &&
+			IsRuntimeSymbolAddressUsable(dlsymAddress))
+		{
+			address = dlsymAddress;
+			return true;
 		}
 		if (_runtimeSymbolsByName.TryGetValue(symbolName, out var value) && IsRuntimeSymbolAddressUsable(value))
 		{
@@ -1286,6 +1390,21 @@ public sealed partial class DirectExecutionBackend
 		}
 	}
 
+	private bool TryReadUInt32Compat(ulong address, out uint value)
+	{
+		value = 0;
+		Span<byte> bytes = stackalloc byte[sizeof(uint)];
+		for (var index = 0; index < bytes.Length; index++)
+		{
+			if (!TryReadByteCompat(address + (ulong)index, bytes[index..]))
+			{
+				return false;
+			}
+		}
+		value = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+		return true;
+	}
+
 	private bool TryWriteUInt64Compat(ulong address, ulong value)
 	{
 		var cpuContext = ActiveCpuContext;
@@ -1300,6 +1419,31 @@ public sealed partial class DirectExecutionBackend
 		try
 		{
 			Marshal.WriteInt64((nint)address, unchecked((long)value));
+			return true;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private bool TryWriteUInt32Compat(ulong address, uint value)
+	{
+		var cpuContext = ActiveCpuContext;
+		if (cpuContext == null || address == 0)
+		{
+			return false;
+		}
+
+		Span<byte> bytes = stackalloc byte[sizeof(uint)];
+		BinaryPrimitives.WriteUInt32LittleEndian(bytes, value);
+		if (cpuContext.Memory.TryWrite(address, bytes))
+		{
+			return true;
+		}
+		try
+		{
+			Marshal.WriteInt32((nint)address, unchecked((int)value));
 			return true;
 		}
 		catch

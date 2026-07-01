@@ -591,6 +591,7 @@ public sealed class SelfLoader : ISelfLoader
             stringTable,
             virtualMemory,
             imageBase,
+            elfHeader.Type == 3,
             tlsModuleId,
             descriptors,
             orderedImportNids,
@@ -761,6 +762,7 @@ public sealed class SelfLoader : ISelfLoader
                 stringTable,
                 virtualMemory,
                 imageBase,
+                elfHeader.Type == 3,
                 tlsModuleId,
                 descriptors,
                 orderedImportNids,
@@ -777,6 +779,7 @@ public sealed class SelfLoader : ISelfLoader
         ReadOnlySpan<byte> stringTable,
         IVirtualMemory virtualMemory,
         ulong imageBase,
+        bool isPositionIndependent,
         uint tlsModuleId,
         ICollection<RelocationDescriptor> descriptors,
         IList<string> orderedImportNids,
@@ -799,7 +802,10 @@ public sealed class SelfLoader : ISelfLoader
                 continue;
             }
 
-            if (!TryResolveMappedAddress(virtualMemory, relocation.Offset, imageBase, sizeof(ulong), out var targetAddress))
+            var relocationAddress = isPositionIndependent
+                ? unchecked(imageBase + relocation.Offset)
+                : relocation.Offset;
+            if (!TryResolveMappedAddress(virtualMemory, relocationAddress, 0, sizeof(ulong), out var targetAddress))
             {
                 if (IsFocusRelocationOffset(relocation.Offset, imageBase))
                 {
@@ -852,7 +858,11 @@ public sealed class SelfLoader : ISelfLoader
             var symbolBind = GetSymbolBind(symbol.Info);
             if (symbolBind == SymbolBindLocal)
             {
-                var symbolAddress = ResolveMappedAddressOrFallback(virtualMemory, symbol.Value, imageBase);
+                var symbolAddress = ResolveElfSymbolAddress(
+                    virtualMemory,
+                    symbol.Value,
+                    imageBase,
+                    isPositionIndependent);
                 if (symbolAddress == 0)
                 {
                     Log.Info(
@@ -873,7 +883,11 @@ public sealed class SelfLoader : ISelfLoader
 
             if (symbol.Value != 0)
             {
-                var symbolAddress = ResolveMappedAddressOrFallback(virtualMemory, symbol.Value, imageBase);
+                var symbolAddress = ResolveElfSymbolAddress(
+                    virtualMemory,
+                    symbol.Value,
+                    imageBase,
+                    isPositionIndependent);
                 if (symbolAddress == 0)
                 {
                     Log.Info(
@@ -948,6 +962,7 @@ public sealed class SelfLoader : ISelfLoader
             programHeaders,
             virtualMemory,
             imageBase,
+            elfHeader.Type == 3,
             importStubs,
             runtimeSymbols);
 
@@ -1172,9 +1187,9 @@ public sealed class SelfLoader : ISelfLoader
                     continue;
                 }
 
-                var symbolAddress = symbol.Value >= imageBase
-                    ? symbol.Value
-                    : unchecked(imageBase + symbol.Value);
+                var symbolAddress = elfHeader.Type == 3
+                    ? unchecked(imageBase + symbol.Value)
+                    : symbol.Value;
                 if (symbolAddress < 0x10000)
                 {
                     continue;
@@ -1196,6 +1211,7 @@ public sealed class SelfLoader : ISelfLoader
         IReadOnlyList<ProgramHeader> programHeaders,
         IVirtualMemory virtualMemory,
         ulong imageBase,
+        bool isPositionIndependent,
         IDictionary<ulong, string> importStubs,
         IDictionary<string, ulong> runtimeSymbols)
     {
@@ -1269,9 +1285,9 @@ public sealed class SelfLoader : ISelfLoader
                 continue;
             }
 
-            var symbolAddress = symbol.Value >= imageBase
-                ? symbol.Value
-                : unchecked(imageBase + symbol.Value);
+            var symbolAddress = isPositionIndependent
+                ? unchecked(imageBase + symbol.Value)
+                : symbol.Value;
             if (symbolAddress < 0x10000)
             {
                 continue;
@@ -1919,6 +1935,25 @@ public sealed class SelfLoader : ISelfLoader
         }
 
         return false;
+    }
+
+    private static ulong ResolveElfSymbolAddress(
+        IVirtualMemory virtualMemory,
+        ulong symbolValue,
+        ulong imageBase,
+        bool isPositionIndependent)
+    {
+        if (!isPositionIndependent)
+        {
+            return ResolveMappedAddressOrFallback(virtualMemory, symbolValue, imageBase);
+        }
+        if (symbolValue == 0 || symbolValue > ulong.MaxValue - imageBase)
+        {
+            return 0;
+        }
+
+        var rebased = symbolValue + imageBase;
+        return CanAccessAddress(virtualMemory, rebased, 1) ? rebased : 0;
     }
 
     private static ulong ResolveMappedAddressOrFallback(IVirtualMemory virtualMemory, ulong address, ulong imageBase)

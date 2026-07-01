@@ -214,6 +214,10 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 	private readonly List<nint> _importHandlerTrampolines = new List<nint>();
 
+	private readonly object _dynamicImportGate = new();
+
+	private readonly Dictionary<string, ulong> _dynamicImportAddresses = new(StringComparer.Ordinal);
+
 	private const int GuestContextTransferFrameQwords = 15;
 
 	private readonly object _guestContextTransferStubGate = new();
@@ -353,6 +357,12 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 		public CpuContext Context { get; init; } = null!;
 
+		public ulong StackBase { get; init; }
+
+		public ulong TlsBase { get; init; }
+
+		public bool RegionsRecycled { get; set; }
+
 		public GuestThreadRunState State { get; set; }
 
 		public string? BlockReason { get; set; }
@@ -464,6 +474,8 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 	private readonly object _guestThreadGate = new object();
 
 	private readonly Queue<GuestThreadState> _readyGuestThreads = new Queue<GuestThreadState>();
+
+	private readonly Queue<(ulong StackBase, ulong TlsBase)> _availableGuestThreadRegions = new();
 
 	private int _readyGuestThreadCount;
 
@@ -878,12 +890,38 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		ClearImportHandlerTrampolines();
 		_importEntries = new ImportStubEntry[importStubs.Count];
 		HashSet<ulong> hashSet = new HashSet<ulong>(importStubs.Keys);
+		if (importStubs.Values.Contains(RuntimeStubNids.PayloadSyscall, StringComparer.Ordinal) &&
+			(!TryPatchPayloadPlatformFunction("__kernel_init", 0) ||
+			 !TryPatchPayloadPlatformFunction("__patch_init", 0) ||
+			 !TryPatchPayloadPlatformFunction("__rtld_init", 0) ||
+			 !TryPatchPayloadPlatformFunction("__rtld_payload_new", 1) ||
+			 !TryPatchPayloadPlatformFunction("__rtld_dlfcn_setroot", 0) ||
+			 !TryPatchPayloadPlatformFunction("__rtld_lib_open", 0) ||
+			 !TryPatchPayloadPlatformFunction("__rtld_lib_init", 0) ||
+			 !TryPatchPayloadPlatformFunction("__rtld_lib_fini", 0) ||
+			 !TryPatchPayloadPlatformFunction("__rtld_lib_close", 0) ||
+			 !TryPatchPayloadPlatformFunction("__rtld_lib_destroy", 0)))
+		{
+			LastError = "Failed to bypass payload platform initialization";
+			return false;
+		}
+		var sortedStubAddresses = importStubs.Keys.Order().ToArray();
+		var patchSizes = new Dictionary<ulong, int>(sortedStubAddresses.Length);
+		for (var addressIndex = 0; addressIndex < sortedStubAddresses.Length; addressIndex++)
+		{
+			var address = sortedStubAddresses[addressIndex];
+			var nextAddress = addressIndex + 1 < sortedStubAddresses.Length
+				? sortedStubAddresses[addressIndex + 1]
+				: address + 16;
+			patchSizes[address] = (int)Math.Min(16UL, nextAddress - address);
+		}
 		int num = 0;
 		int num2 = 0;
 		int num3 = 0;
 		foreach (var (num4, text2) in importStubs)
 		{
-			_ = _moduleManager.TryGetExport(text2, out var resolvedExport);
+			var patchSize = patchSizes[num4];
+			_ = TryGetExportForImport(text2, out var resolvedExport);
 			_importEntries[num] = new ImportStubEntry(num4, text2, resolvedExport);
 			if ((num4 >= 34393242112L && num4 <= 34393242624L) || (num4 >= 34393258496L && num4 <= 34393259008L))
 			{
@@ -899,7 +937,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			if (TryResolveDirectImportTarget(text2, out var targetAddress, out var resolvedSymbol) && !hashSet.Contains(targetAddress))
 			{
 				Console.Error.WriteLine($"[LOADER][DEBUG] SetupImportStubs: Direct bridge for {text2} -> 0x{targetAddress:X16}");
-				if (!PatchImportStub((nint)(long)num4, (nint)(long)targetAddress))
+				if (!PatchImportStub((nint)(long)num4, (nint)(long)targetAddress, patchSize))
 				{
 					LastError = $"Failed to patch direct import stub at 0x{num4:X16}";
 					return false;
@@ -916,7 +954,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			}
 			if (TryCreateNativeImportIntrinsic(text2, out var intrinsicAddress))
 			{
-				if (!PatchImportStub((nint)(long)num4, intrinsicAddress))
+				if (!PatchImportStub((nint)(long)num4, intrinsicAddress, patchSize))
 				{
 					LastError = $"Failed to patch native intrinsic import stub at 0x{num4:X16}";
 					return false;
@@ -932,7 +970,10 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 				return false;
 			}
 			Console.Error.WriteLine($"[LOADER][DEBUG] SetupImportStubs: Trampoline for {text2} -> 0x{num5:X16}");
-			if (!PatchImportStub((nint)num4, num5))
+			var patched = string.Equals(text2, RuntimeStubNids.PayloadSyscall, StringComparison.Ordinal)
+				? PatchImportStubThroughNearRelay((nint)num4, num5, patchSize)
+				: PatchImportStub((nint)num4, num5, patchSize);
+			if (!patched)
 			{
 				LastError = $"Failed to patch import stub at 0x{num4:X16}";
 				return false;
@@ -942,6 +983,36 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		}
 		Console.Error.WriteLine($"[LOADER][INFO] Setup {num2}/{importStubs.Count} import stubs (direct bridge, lle_redirects={num3})");
 		return num2 == importStubs.Count;
+	}
+
+	private unsafe bool TryPatchPayloadPlatformFunction(string symbolName, uint returnValue)
+	{
+		if (!_runtimeSymbolsByName.TryGetValue(symbolName, out var address) || address < 65536)
+		{
+			return true;
+		}
+
+		uint oldProtect = 0;
+		const uint patchSize = 6;
+		if (!VirtualProtect((void*)address, patchSize, 64u, &oldProtect))
+		{
+			return false;
+		}
+		try
+		{
+			var code = (byte*)address;
+			code[0] = 0xB8;
+			*(uint*)(code + 1) = returnValue;
+			code[5] = 0xC3;
+		}
+		finally
+		{
+			VirtualProtect((void*)address, patchSize, oldProtect, &oldProtect);
+			FlushInstructionCache(GetCurrentProcess(), (void*)address, patchSize);
+		}
+		Console.Error.WriteLine(
+			$"[LOADER][INFO] Payload platform function {symbolName} bypassed at 0x{address:X16} (return={returnValue}).");
+		return true;
 	}
 
 	private unsafe bool TryCreateNativeImportIntrinsic(string nid, out nint address)
@@ -1216,15 +1287,14 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			return false;
 		}
 
-		Console.Error.WriteLine($"[LOADER][DEBUG] TryResolveDirectImportTarget: {nid} not in HLE table, checking runtime symbols...");
-
-		if (TryResolveRuntimeSymbolAddress(nid, out var directValue) && IsDirectImportTargetUsable(directValue))
+		if (_moduleManager.TryGetExportByName(nid, out var namedExport))
 		{
-			targetAddress = directValue;
-			resolvedSymbol = nid;
-			Console.Error.WriteLine($"[LOADER][DEBUG] TryResolveDirectImportTarget: {nid} -> runtime symbol 0x{targetAddress:X16}");
-			return true;
+			Console.Error.WriteLine(
+				$"[LOADER][DEBUG] TryResolveDirectImportTarget: {nid} -> HLE by name ({namedExport.LibraryName}:{namedExport.Name})");
+			return false;
 		}
+
+		Console.Error.WriteLine($"[LOADER][DEBUG] TryResolveDirectImportTarget: {nid} not in HLE table, checking runtime symbols...");
 
 		if (Aerolib.Instance.TryGetByNid(nid, out var symbolByNid))
 		{
@@ -1243,6 +1313,12 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			}
 		}
 		return false;
+	}
+
+	private bool TryGetExportForImport(string symbol, out ExportedFunction export)
+	{
+		return _moduleManager.TryGetExport(symbol, out export) ||
+			_moduleManager.TryGetExportByName(symbol, out export);
 	}
 
 	private static bool IsHlePreferredNid(string nid)
@@ -1548,17 +1624,27 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			ptr2[num++] = 72;
 			ptr2[num++] = 131;
 			ptr2[num++] = 236;
-			ptr2[num++] = 16;
+			ptr2[num++] = 32;
 			ptr2[num++] = 243;
 			ptr2[num++] = 15;
 			ptr2[num++] = 127;
-			ptr2[num++] = 4;
+			ptr2[num++] = 68;
+			ptr2[num++] = 36;
+			ptr2[num++] = 16;
+			ptr2[num++] = 72;
+			ptr2[num++] = 137;
+			ptr2[num++] = 68;
+			ptr2[num++] = 36;
+			ptr2[num++] = 8;
+			ptr2[num++] = 76;
+			ptr2[num++] = 137;
+			ptr2[num++] = 20;
 			ptr2[num++] = 36;
 			ptr2[num++] = 76;
 			ptr2[num++] = 141;
 			ptr2[num++] = 100;
 			ptr2[num++] = 36;
-			ptr2[num++] = 16;
+			ptr2[num++] = 32;
 			ptr2[num++] = 72;
 			ptr2[num++] = 131;
 			ptr2[num++] = 236;
@@ -1639,10 +1725,19 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		}
 	}
 
-	private unsafe bool PatchImportStub(nint address, nint trampoline)
+	private unsafe bool PatchImportStub(nint address, nint trampoline, int patchSize = 16)
 	{
+		if (patchSize < 5)
+		{
+			return false;
+		}
+		if (patchSize < 12)
+		{
+			return PatchImportStubThroughNearRelay(address, trampoline, patchSize);
+		}
+
 		uint flNewProtect = default(uint);
-		if (!VirtualProtect((void*)address, 16u, 64u, &flNewProtect))
+		if (!VirtualProtect((void*)address, (nuint)patchSize, 64u, &flNewProtect))
 		{
 			Console.Error.WriteLine($"[LOADER][ERROR] VirtualProtect failed for import stub at 0x{address:X16}");
 			return false;
@@ -1654,17 +1749,103 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			*(long*)(address + 2) = trampoline;
 			*(sbyte*)(address + 10) = -1;
 			*(sbyte*)(address + 11) = -32;
-			*(sbyte*)(address + 12) = -112;
-			*(sbyte*)(address + 13) = -112;
-			*(sbyte*)(address + 14) = -112;
-			*(sbyte*)(address + 15) = -112;
+			for (var index = 12; index < patchSize; index++)
+			{
+				*(byte*)(address + index) = 0x90;
+			}
 			return true;
 		}
 		finally
 		{
-			VirtualProtect((void*)address, 16u, flNewProtect, &flNewProtect);
-			FlushInstructionCache(GetCurrentProcess(), (void*)address, 16u);
+			VirtualProtect((void*)address, (nuint)patchSize, flNewProtect, &flNewProtect);
+			FlushInstructionCache(GetCurrentProcess(), (void*)address, (nuint)patchSize);
 		}
+	}
+
+	private unsafe bool PatchImportStubThroughNearRelay(nint address, nint trampoline, int patchSize)
+	{
+		const ulong allocationGranularity = 0x10000;
+		const nuint relaySize = 0x1000;
+		var origin = unchecked((ulong)address);
+		var alignedOrigin = origin & ~(allocationGranularity - 1);
+		void* relay = null;
+		Span<ulong> candidates = stackalloc ulong[2];
+
+		for (ulong step = 1; step <= 0x7FFF && relay == null; step++)
+		{
+			var distance = step * allocationGranularity;
+			candidates[0] = alignedOrigin >= distance ? alignedOrigin - distance : 0;
+			candidates[1] = alignedOrigin <= ulong.MaxValue - distance ? alignedOrigin + distance : 0;
+			foreach (var candidate in candidates)
+			{
+				if (candidate == 0)
+				{
+					continue;
+				}
+				var relativeOffset = unchecked((long)candidate - ((long)address + 5));
+				if (relativeOffset is < int.MinValue or > int.MaxValue)
+				{
+					continue;
+				}
+				relay = VirtualAlloc((void*)candidate, relaySize, 12288u, 64u);
+				if (relay != null && (ulong)relay != candidate)
+				{
+					VirtualFree(relay, 0u, 32768u);
+					relay = null;
+				}
+				if (relay != null)
+				{
+					break;
+				}
+			}
+		}
+
+		if (relay == null)
+		{
+			Console.Error.WriteLine($"[LOADER][ERROR] Failed to allocate a near relay for import stub at 0x{address:X16}");
+			return false;
+		}
+
+		var relayBytes = (byte*)relay;
+		relayBytes[0] = 0x49;
+		relayBytes[1] = 0xBB;
+		*(nint*)(relayBytes + 2) = trampoline;
+		relayBytes[10] = 0x41;
+		relayBytes[11] = 0xFF;
+		relayBytes[12] = 0xE3;
+		uint relayOldProtect = 0;
+		if (!VirtualProtect(relay, relaySize, 32u, &relayOldProtect))
+		{
+			VirtualFree(relay, 0u, 32768u);
+			return false;
+		}
+		FlushInstructionCache(GetCurrentProcess(), relay, 13u);
+
+		uint stubOldProtect = 0;
+		if (!VirtualProtect((void*)address, (nuint)patchSize, 64u, &stubOldProtect))
+		{
+			VirtualFree(relay, 0u, 32768u);
+			return false;
+		}
+
+		try
+		{
+			var relativeOffset = checked((int)((long)relay - ((long)address + 5)));
+			*(byte*)address = 0xE9;
+			*(int*)(address + 1) = relativeOffset;
+			for (var index = 5; index < patchSize; index++)
+			{
+				*(byte*)(address + index) = 0x90;
+			}
+		}
+		finally
+		{
+			VirtualProtect((void*)address, (nuint)patchSize, stubOldProtect, &stubOldProtect);
+			FlushInstructionCache(GetCurrentProcess(), (void*)address, (nuint)patchSize);
+		}
+
+		_importHandlerTrampolines.Add((nint)relay);
+		return true;
 	}
 
 	private unsafe void ClearImportHandlerTrampolines()
@@ -1677,6 +1858,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			}
 		}
 		_importHandlerTrampolines.Clear();
+		_dynamicImportAddresses.Clear();
 	}
 
 	private unsafe void CreateTlsHandler()
@@ -2406,6 +2588,29 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 	public bool SupportsGuestContextTransfer => true;
 
+	public bool TryJoinThread(ulong threadHandle)
+	{
+		Thread? hostThread;
+		lock (_guestThreadGate)
+		{
+			if (!_guestThreads.TryGetValue(threadHandle, out var thread) ||
+				thread.State is GuestThreadRunState.Exited or GuestThreadRunState.Faulted)
+			{
+				return true;
+			}
+
+			hostThread = thread.HostThread;
+		}
+
+		if (hostThread is null || ReferenceEquals(hostThread, Thread.CurrentThread))
+		{
+			return false;
+		}
+
+		hostThread.Join();
+		return true;
+	}
+
 	public void Pump(CpuContext callerContext, string reason)
 	{
 		_ = callerContext;
@@ -2944,6 +3149,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 				.Cast<GuestContinuationRunner>()
 				.ToArray();
 			_readyGuestThreads.Clear();
+			_availableGuestThreadRegions.Clear();
 			Interlocked.Exchange(ref _readyGuestThreadCount, 0);
 			_guestThreads.Clear();
 		}
@@ -2962,11 +3168,24 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			error = "creator context memory is not backed by IVirtualMemory";
 			return false;
 		}
-		if (!TryMapGuestThreadRegion(virtualMemory, GuestThreadStackBaseAddress, GuestThreadStackSize, ProgramHeaderFlags.Read | ProgramHeaderFlags.Write, out var stackBase, out error))
+		ulong stackBase;
+		ulong tlsBase;
+		lock (_guestThreadGate)
 		{
-			return false;
+			if (_availableGuestThreadRegions.TryDequeue(out var recycled))
+			{
+				stackBase = recycled.StackBase;
+				tlsBase = recycled.TlsBase;
+			}
+			else
+			{
+				stackBase = 0;
+				tlsBase = 0;
+			}
 		}
-		if (!TryMapGuestThreadTlsRegion(virtualMemory, out var tlsBase, out error))
+		if (stackBase == 0 &&
+			(!TryMapGuestThreadRegion(virtualMemory, GuestThreadStackBaseAddress, GuestThreadStackSize, ProgramHeaderFlags.Read | ProgramHeaderFlags.Write, out stackBase, out error) ||
+			 !TryMapGuestThreadTlsRegion(virtualMemory, out tlsBase, out error)))
 		{
 			return false;
 		}
@@ -3001,6 +3220,8 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			Priority = request.Priority,
 			AffinityMask = request.AffinityMask,
 			Context = context,
+			StackBase = stackBase,
+			TlsBase = tlsBase,
 			State = GuestThreadRunState.Ready,
 		};
 		error = null;
@@ -3209,6 +3430,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		var previousLastError = LastError;
 		var previousGuestThreadHandle = GuestThreadExecution.EnterGuestThread(thread.ThreadHandle);
 		var previousGuestThreadState = _activeGuestThreadState;
+		var recycleRegions = false;
 		ApplyGuestThreadAffinity(thread.AffinityMask);
 		Volatile.Write(ref thread.HostThreadId, unchecked((int)GetCurrentThreadId()));
 		_activeGuestThreadState = thread;
@@ -3276,6 +3498,13 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 						thread.BlockReason = blockReason;
 						break;
 				}
+				if (thread.State is GuestThreadRunState.Exited or GuestThreadRunState.Faulted &&
+					!thread.RegionsRecycled)
+				{
+					thread.RegionsRecycled = true;
+					_guestThreads.Remove(thread.ThreadHandle);
+					recycleRegions = true;
+				}
 			}
 			if (_logGuestThreads)
 			{
@@ -3289,6 +3518,13 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			Volatile.Write(ref thread.HostThreadId, 0);
 			GuestThreadExecution.RestoreGuestThread(previousGuestThreadHandle);
 			LastError = previousLastError;
+			if (recycleRegions)
+			{
+				lock (_guestThreadGate)
+				{
+					_availableGuestThreadRegions.Enqueue((thread.StackBase, thread.TlsBase));
+				}
+			}
 		}
 	}
 

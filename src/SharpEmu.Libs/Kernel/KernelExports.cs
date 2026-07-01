@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using SharpEmu.HLE;
+using System.Runtime.InteropServices;
 using System.Threading;
 
 using SharpEmu.Logging;
@@ -15,8 +16,11 @@ public static class KernelExports
     private static readonly object _cxaGate = new();
     private static readonly List<CxaDestructorEntry> _cxaDestructors = new();
     private static readonly object _coredumpGate = new();
+    private static readonly object _environmentGate = new();
+    private static readonly Dictionary<string, nint> _environmentStrings = new(StringComparer.Ordinal);
     private static ulong _coredumpHandler;
     private static ulong _coredumpHandlerContext;
+    private static int _randState = 1;
 
     private readonly record struct CxaDestructorEntry(
         ulong Function,
@@ -217,7 +221,8 @@ public static class KernelExports
             name,
             priority,
             affinityMask);
-        if (threadIdAddress != 0 && !ctx.TryWriteUInt64(threadIdAddress, threadHandle))
+        if (threadIdAddress != 0 &&
+            !KernelMemoryCompatExports.TryWriteUInt64Compat(ctx, threadIdAddress, threadHandle))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -231,7 +236,12 @@ public static class KernelExports
         }
 
         var scheduler = GuestThreadExecution.Scheduler;
-        if (scheduler is not null && entryAddress != 0)
+        var emulateSilently = string.Equals(name, "SDLAudioP2", StringComparison.Ordinal);
+        if (emulateSilently)
+        {
+            Log.Info("pthread_create: emulating SDL audio callback thread with the silent audio backend.");
+        }
+        else if (scheduler is not null && entryAddress != 0)
         {
             var request = new GuestThreadStartRequest(
                 threadHandle,
@@ -262,6 +272,30 @@ public static class KernelExports
     public static int PosixPthreadCreate(CpuContext ctx)
     {
         return PthreadCreate(ctx);
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_attr_detach",
+        ExportName = "pthread_attr_setdetachstate",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixPthreadAttrSetDetachState(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_setjmp",
+        ExportName = "setjmp",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Setjmp(CpuContext ctx)
+    {
+        // Valid libpng inputs only need the initial setjmp return. longjmp state
+        // remains unnecessary until guest-side decoder errors are propagated.
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
 
     [SysAbiExport(
@@ -309,7 +343,14 @@ public static class KernelExports
     {
         var threadId = ctx[CpuRegister.Rdi];
         var returnValueAddress = ctx[CpuRegister.Rsi];
-        if (returnValueAddress != 0 && !ctx.TryWriteUInt64(returnValueAddress, 0))
+        if (GuestThreadExecution.Scheduler is { } scheduler &&
+            !scheduler.TryJoinThread(threadId))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN;
+        }
+
+        if (returnValueAddress != 0 &&
+            !KernelMemoryCompatExports.TryWriteUInt64Compat(ctx, returnValueAddress, 0))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -395,6 +436,115 @@ public static class KernelExports
 
         ctx[CpuRegister.Rax] = 0;
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_getenv",
+        ExportName = "getenv",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Getenv(CpuContext ctx)
+    {
+        var name = ReadCString(ctx, ctx[CpuRegister.Rdi], 1024);
+        if (!name.StartsWith("SDL_", StringComparison.Ordinal))
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var value = Environment.GetEnvironmentVariable(name);
+        if (value is null)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var cacheKey = $"{name}={value}";
+        lock (_environmentGate)
+        {
+            if (!_environmentStrings.TryGetValue(cacheKey, out var pointer))
+            {
+                pointer = Marshal.StringToHGlobalAnsi(value);
+                _environmentStrings[cacheKey] = pointer;
+            }
+
+            ctx[CpuRegister.Rax] = unchecked((ulong)pointer);
+        }
+
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_puts",
+        ExportName = "puts",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Puts(CpuContext ctx)
+    {
+        var text = ReadCString(ctx, ctx[CpuRegister.Rdi], 4096);
+        Console.WriteLine(text);
+        ctx[CpuRegister.Rax] = unchecked((ulong)text.Length + 1);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_time",
+        ExportName = "time",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Time(CpuContext ctx)
+    {
+        var seconds = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var outputAddress = ctx[CpuRegister.Rdi];
+        if (outputAddress != 0 && !ctx.TryWriteUInt64(outputAddress, unchecked((ulong)seconds)))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        ctx[CpuRegister.Rax] = unchecked((ulong)seconds);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_srand",
+        ExportName = "srand",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Srand(CpuContext ctx)
+    {
+        Volatile.Write(ref _randState, unchecked((int)ctx[CpuRegister.Rdi]));
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_rand",
+        ExportName = "rand",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Rand(CpuContext ctx)
+    {
+        int initial;
+        int updated;
+        do
+        {
+            initial = Volatile.Read(ref _randState);
+            updated = unchecked((initial * 1103515245) + 12345);
+        }
+        while (Interlocked.CompareExchange(ref _randState, updated, initial) != initial);
+
+        ctx[CpuRegister.Rax] = unchecked((uint)(updated >> 16) & 0x7FFFu);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_pthread_once",
+        ExportName = "pthread_once",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixPthreadOnce(CpuContext ctx)
+    {
+        return KernelPthreadCompatExports.PthreadOnce(ctx);
     }
 
     private static string ReadCString(CpuContext ctx, ulong address, int maxLen)

@@ -304,20 +304,43 @@ internal static unsafe class VulkanVideoPresenter
         private bool _firstFramePresented;
         private bool _firstGuestDrawPresented;
         private bool _splashPresented;
+        private bool _framebufferResized;
 
         public Presenter(uint width, uint height)
         {
             var options = WindowOptions.DefaultVulkan;
-            options.Size = new Vector2D<int>((int)width, (int)height);
+            options.Size = ComputeInitialWindowSize(width, height);
             options.Title = VideoOutExports.GetWindowTitle();
-            options.WindowBorder = WindowBorder.Fixed;
+            options.WindowBorder = WindowBorder.Resizable;
             options.VSync = true;
             options.FramesPerSecond = 60;
             options.UpdatesPerSecond = 60;
             _window = Window.Create(options);
             _window.Load += Initialize;
             _window.Render += Render;
+            _window.FramebufferResize += OnFramebufferResize;
             _window.Closing += DisposeVulkan;
+        }
+
+        private void OnFramebufferResize(Vector2D<int> size) => _framebufferResized = true;
+
+        private static Vector2D<int> ComputeInitialWindowSize(uint width, uint height)
+        {
+            const int maxWidth = 1280;
+            const int maxHeight = 720;
+            var windowWidth = (int)Math.Clamp(width, 1u, 8192u);
+            var windowHeight = (int)Math.Clamp(height, 1u, 8192u);
+            if (windowWidth <= maxWidth && windowHeight <= maxHeight)
+            {
+                return new Vector2D<int>(windowWidth, windowHeight);
+            }
+
+            // Keep the initial windowed size comfortable on screen while preserving the guest aspect ratio;
+            // the swapchain rescales the frame to whatever size the user drags the window to afterwards.
+            var scale = Math.Min((double)maxWidth / windowWidth, (double)maxHeight / windowHeight);
+            return new Vector2D<int>(
+                Math.Max(1, (int)Math.Round(windowWidth * scale)),
+                Math.Max(1, (int)Math.Round(windowHeight * scale)));
         }
 
         public void Run() => _window.Run();
@@ -554,7 +577,7 @@ internal static unsafe class VulkanVideoPresenter
             Check(_vk.CreateSemaphore(_device, &semaphoreInfo, null, out _imageAvailable), "vkCreateSemaphore");
             Check(_vk.CreateSemaphore(_device, &semaphoreInfo, null, out _renderFinished), "vkCreateSemaphore");
 
-            CreateStagingBuffer((ulong)_extent.Width * _extent.Height * 4);
+            EnsureStagingBuffer((ulong)_extent.Width * _extent.Height * 4);
         }
 
         private void CreateGuestDrawResources()
@@ -601,6 +624,20 @@ internal static unsafe class VulkanVideoPresenter
             };
             Check(_vk.CreateRenderPass(_device, &renderPassInfo, null, out _renderPass), "vkCreateRenderPass");
 
+            CreateFramebuffers();
+
+            var layoutInfo = new PipelineLayoutCreateInfo
+            {
+                SType = StructureType.PipelineLayoutCreateInfo,
+            };
+            Check(
+                _vk.CreatePipelineLayout(_device, &layoutInfo, null, out _pipelineLayout),
+                "vkCreatePipelineLayout");
+            CreateBarycentricPipeline();
+        }
+
+        private void CreateFramebuffers()
+        {
             _swapchainImageViews = new ImageView[_swapchainImages.Length];
             _framebuffers = new Framebuffer[_swapchainImages.Length];
             for (var index = 0; index < _swapchainImages.Length; index++)
@@ -637,15 +674,54 @@ internal static unsafe class VulkanVideoPresenter
                     _vk.CreateFramebuffer(_device, &framebufferInfo, null, out _framebuffers[index]),
                     "vkCreateFramebuffer");
             }
+        }
 
-            var layoutInfo = new PipelineLayoutCreateInfo
+        private void DestroyFramebuffers()
+        {
+            foreach (var framebuffer in _framebuffers)
             {
-                SType = StructureType.PipelineLayoutCreateInfo,
-            };
-            Check(
-                _vk.CreatePipelineLayout(_device, &layoutInfo, null, out _pipelineLayout),
-                "vkCreatePipelineLayout");
-            CreateBarycentricPipeline();
+                if (framebuffer.Handle != 0)
+                {
+                    _vk.DestroyFramebuffer(_device, framebuffer, null);
+                }
+            }
+            _framebuffers = [];
+
+            foreach (var imageView in _swapchainImageViews)
+            {
+                if (imageView.Handle != 0)
+                {
+                    _vk.DestroyImageView(_device, imageView, null);
+                }
+            }
+            _swapchainImageViews = [];
+        }
+
+        private void RecreateSwapchain()
+        {
+            var size = _window.FramebufferSize;
+            if (size.X == 0 || size.Y == 0)
+            {
+                // The window is minimized; defer until it regains a drawable surface.
+                _framebufferResized = true;
+                return;
+            }
+
+            _vk.DeviceWaitIdle(_device);
+            DestroyFramebuffers();
+            if (_swapchain.Handle != 0)
+            {
+                _swapchainApi.DestroySwapchain(_device, _swapchain, null);
+                _swapchain = default;
+            }
+
+            CreateSwapchain();
+            CreateFramebuffers();
+            EnsureStagingBuffer((ulong)_extent.Width * _extent.Height * 4);
+
+            // Re-present the most recent frame at the new size instead of leaving the window blank.
+            _presentedSequence = -1;
+            Log.Info($"Vulkan VideoOut swapchain resized: {_extent.Width}x{_extent.Height}");
         }
 
         private void CreateBarycentricPipeline()
@@ -719,6 +795,15 @@ internal static unsafe class VulkanVideoPresenter
                     AttachmentCount = 1,
                     PAttachments = &colorBlendAttachment,
                 };
+                var dynamicStates = stackalloc DynamicState[2];
+                dynamicStates[0] = DynamicState.Viewport;
+                dynamicStates[1] = DynamicState.Scissor;
+                var dynamicState = new PipelineDynamicStateCreateInfo
+                {
+                    SType = StructureType.PipelineDynamicStateCreateInfo,
+                    DynamicStateCount = 2,
+                    PDynamicStates = dynamicStates,
+                };
                 var pipelineInfo = new GraphicsPipelineCreateInfo
                 {
                     SType = StructureType.GraphicsPipelineCreateInfo,
@@ -730,6 +815,7 @@ internal static unsafe class VulkanVideoPresenter
                     PRasterizationState = &rasterization,
                     PMultisampleState = &multisample,
                     PColorBlendState = &colorBlend,
+                    PDynamicState = &dynamicState,
                     Layout = _pipelineLayout,
                     RenderPass = _renderPass,
                     Subpass = 0,
@@ -767,6 +853,27 @@ internal static unsafe class VulkanVideoPresenter
                     "vkCreateShaderModule");
                 return module;
             }
+        }
+
+        private void EnsureStagingBuffer(ulong size)
+        {
+            if (_stagingBuffer.Handle != 0 && _stagingSize >= size)
+            {
+                return;
+            }
+
+            if (_stagingBuffer.Handle != 0)
+            {
+                _vk.DestroyBuffer(_device, _stagingBuffer, null);
+                _stagingBuffer = default;
+            }
+            if (_stagingMemory.Handle != 0)
+            {
+                _vk.FreeMemory(_device, _stagingMemory, null);
+                _stagingMemory = default;
+            }
+
+            CreateStagingBuffer(size);
         }
 
         private void CreateStagingBuffer(ulong size)
@@ -828,7 +935,7 @@ internal static unsafe class VulkanVideoPresenter
             {
                 pixels = presentation.Width == _extent.Width && presentation.Height == _extent.Height
                     ? sourcePixels
-                    : ScaleBgra(
+                    : ComposeLetterboxed(
                         sourcePixels,
                         presentation.Width,
                         presentation.Height,
@@ -841,15 +948,22 @@ internal static unsafe class VulkanVideoPresenter
             }
 
             uint imageIndex;
-            Check(
-                _swapchainApi.AcquireNextImage(
-                    _device,
-                    _swapchain,
-                    ulong.MaxValue,
-                    _imageAvailable,
-                    default,
-                    &imageIndex),
-                "vkAcquireNextImageKHR");
+            var acquireResult = _swapchainApi.AcquireNextImage(
+                _device,
+                _swapchain,
+                ulong.MaxValue,
+                _imageAvailable,
+                default,
+                &imageIndex);
+            if (acquireResult == Result.ErrorOutOfDateKhr)
+            {
+                RecreateSwapchain();
+                return;
+            }
+            if (acquireResult is not (Result.Success or Result.SuboptimalKhr))
+            {
+                throw new InvalidOperationException($"vkAcquireNextImageKHR failed with {acquireResult}.");
+            }
 
             if (pixels is not null)
             {
@@ -898,6 +1012,10 @@ internal static unsafe class VulkanVideoPresenter
                     _commandBuffer,
                     PipelineBindPoint.Graphics,
                     _barycentricPipeline);
+                var viewport = new Viewport(0, 0, _extent.Width, _extent.Height, 0, 1);
+                var scissor = new Rect2D(new Offset2D(0, 0), _extent);
+                _vk.CmdSetViewport(_commandBuffer, 0, 1, &viewport);
+                _vk.CmdSetScissor(_commandBuffer, 0, 1, &scissor);
                 _vk.CmdDraw(_commandBuffer, 3, 1, 0, 0);
                 _vk.CmdEndRenderPass(_commandBuffer);
                 waitStage = PipelineStageFlags.ColorAttachmentOutputBit;
@@ -936,7 +1054,14 @@ internal static unsafe class VulkanVideoPresenter
                 PSwapchains = &swapchain,
                 PImageIndices = &imageIndex,
             };
-            Check(_swapchainApi.QueuePresent(_queue, &presentInfo), "vkQueuePresentKHR");
+            var presentResult = _swapchainApi.QueuePresent(_queue, &presentInfo);
+            var needsRecreate =
+                presentResult is Result.ErrorOutOfDateKhr or Result.SuboptimalKhr || _framebufferResized;
+            if (!needsRecreate && presentResult != Result.Success)
+            {
+                throw new InvalidOperationException($"vkQueuePresentKHR failed with {presentResult}.");
+            }
+
             Check(_vk.QueueWaitIdle(_queue), "vkQueueWaitIdle");
             _imageInitialized[imageIndex] = true;
             _presentedSequence = presentation.Sequence;
@@ -961,6 +1086,12 @@ internal static unsafe class VulkanVideoPresenter
                 Log.Info(
                     $"Vulkan VideoOut presented translated guest draw: " +
                     $"{presentation.DrawKind}");
+            }
+
+            if (needsRecreate)
+            {
+                _framebufferResized = false;
+                RecreateSwapchain();
             }
         }
 
@@ -1093,17 +1224,46 @@ internal static unsafe class VulkanVideoPresenter
                 LayerCount = 1,
             };
 
-        private static byte[] ScaleBgra(byte[] source, uint sourceWidth, uint sourceHeight, uint width, uint height)
+        // Scales the guest frame to fit the window while preserving its aspect ratio, filling the
+        // remaining area with opaque black (letterbox / pillarbox) so the picture is never stretched.
+        private static byte[] ComposeLetterboxed(byte[] source, uint sourceWidth, uint sourceHeight, uint width, uint height)
         {
             var destination = new byte[checked((int)(width * height * 4))];
-            for (uint y = 0; y < height; y++)
+            for (var offset = 3; offset < destination.Length; offset += 4)
             {
-                var sourceY = (uint)(((ulong)y * sourceHeight) / height);
-                for (uint x = 0; x < width; x++)
+                destination[offset] = 0xFF;
+            }
+
+            if (sourceWidth == 0 || sourceHeight == 0 || width == 0 || height == 0)
+            {
+                return destination;
+            }
+
+            uint targetWidth;
+            uint targetHeight;
+            if ((ulong)width * sourceHeight <= (ulong)height * sourceWidth)
+            {
+                // Window is (relatively) wider than the frame: fit to width, pillarbox on the sides.
+                targetWidth = width;
+                targetHeight = (uint)Math.Clamp((ulong)sourceHeight * width / sourceWidth, 1, height);
+            }
+            else
+            {
+                // Window is taller than the frame: fit to height, letterbox top and bottom.
+                targetHeight = height;
+                targetWidth = (uint)Math.Clamp((ulong)sourceWidth * height / sourceHeight, 1, width);
+            }
+
+            var offsetX = (width - targetWidth) / 2;
+            var offsetY = (height - targetHeight) / 2;
+            for (uint y = 0; y < targetHeight; y++)
+            {
+                var sourceY = (uint)((ulong)y * sourceHeight / targetHeight);
+                for (uint x = 0; x < targetWidth; x++)
                 {
-                    var sourceX = (uint)(((ulong)x * sourceWidth) / width);
+                    var sourceX = (uint)((ulong)x * sourceWidth / targetWidth);
                     var sourceOffset = checked((int)(((ulong)sourceY * sourceWidth + sourceX) * 4));
-                    var destinationOffset = checked((int)(((ulong)y * width + x) * 4));
+                    var destinationOffset = checked((int)(((ulong)(y + offsetY) * width + (x + offsetX)) * 4));
                     source.AsSpan(sourceOffset, 4).CopyTo(destination.AsSpan(destinationOffset, 4));
                 }
             }

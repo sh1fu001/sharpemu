@@ -115,6 +115,10 @@ public sealed partial class DirectExecutionBackend
 			{
 				return 0;
 			}
+			if (exceptionCode == 3221225501u && TryHandleGuestUd2(contextRecord, rip))
+			{
+				return -1;
+			}
 
 			switch (exceptionCode)
 			{
@@ -302,6 +306,36 @@ public sealed partial class DirectExecutionBackend
 		finally
 		{
 			_vectoredHandlerDepth--;
+		}
+	}
+
+	private unsafe bool TryHandleGuestUd2(void* contextRecord, ulong rip)
+	{
+		var hostExit = ActiveEntryReturnSentinelRip;
+		if (hostExit < 65536)
+		{
+			return false;
+		}
+
+		try
+		{
+			var instruction = (byte*)rip;
+			if (instruction[0] != 0x0F || instruction[1] != 0x0B)
+			{
+				return false;
+			}
+
+			WriteCtxU64(contextRecord, CTX_RAX, unchecked((ulong)-1L));
+			WriteCtxU64(contextRecord, 248, hostExit);
+			ActiveForcedGuestExit = true;
+			LastError = $"Guest executed UD2 at 0x{rip:X16}.";
+			Console.Error.WriteLine(
+				$"[LOADER][WARN] Guest UD2 at 0x{rip:X16}; returning control to the host.");
+			return true;
+		}
+		catch
+		{
+			return false;
 		}
 	}
 

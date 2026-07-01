@@ -48,9 +48,11 @@ public static class VideoOutExports
     private static readonly object _frameDumpGate = new();
     private static readonly Dictionary<int, VideoOutPortState> _ports = new();
     private static readonly Dictionary<(int Handle, int BufferIndex, ulong Address), ulong> _lastFrameFingerprints = new();
+    private static readonly Dictionary<(uint Width, uint Height, uint Pitch, uint TilingMode), (int[] Offsets, int SourcePixels)> _presentationLayouts = new();
     private static int _nextHandle = 1;
     private static int _frameDumpCount;
     private static long _nextFrameDumpIndex;
+    private static long _lastPresentationTimestamp;
     private static string _windowTitle = "SharpEmu VideoOut";
 
     public static void ConfigureApplicationInfo(string? title, string? titleId, string? version)
@@ -232,7 +234,7 @@ public static class VideoOutExports
         BinaryPrimitives.WriteInt32LittleEndian(status[0x00..0x04], resolutionClass);
         BinaryPrimitives.WriteInt32LittleEndian(status[0x04..0x08], 1);
         BinaryPrimitives.WriteUInt64LittleEndian(status[0x08..0x10], port.RefreshRate);
-        return ctx.Memory.TryWrite(statusAddress, status)
+        return KernelMemoryCompatExports.TryWriteCompat(ctx, statusAddress, status)
             ? (int)OrbisGen2Result.ORBIS_GEN2_OK
             : (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
     }
@@ -259,7 +261,7 @@ public static class VideoOutExports
 
         Span<byte> gammaBytes = stackalloc byte[sizeof(float)];
         BinaryPrimitives.WriteInt32LittleEndian(gammaBytes, BitConverter.SingleToInt32Bits(gamma));
-        return ctx.Memory.TryWrite(settingsAddress, gammaBytes)
+        return KernelMemoryCompatExports.TryWriteCompat(ctx, settingsAddress, gammaBytes)
             ? (int)OrbisGen2Result.ORBIS_GEN2_OK
             : (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
     }
@@ -284,7 +286,7 @@ public static class VideoOutExports
         }
 
         Span<byte> gammaBytes = stackalloc byte[sizeof(float)];
-        if (!ctx.Memory.TryRead(settingsAddress, gammaBytes))
+        if (!KernelMemoryCompatExports.TryReadCompat(ctx, settingsAddress, gammaBytes))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -397,7 +399,7 @@ public static class VideoOutExports
             return OrbisVideoOutErrorInvalidAddress;
         }
 
-        if (!ctx.TryReadUInt64(eventAddress, out var ident) ||
+        if (!KernelMemoryCompatExports.TryReadUInt64Compat(ctx, eventAddress, out var ident) ||
             !TryReadInt16(ctx, eventAddress + 0x08, out var filter))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
@@ -425,9 +427,9 @@ public static class VideoOutExports
             return OrbisVideoOutErrorInvalidAddress;
         }
 
-        if (!ctx.TryReadUInt64(eventAddress, out var ident) ||
+        if (!KernelMemoryCompatExports.TryReadUInt64Compat(ctx, eventAddress, out var ident) ||
             !TryReadInt16(ctx, eventAddress + 0x08, out var filter) ||
-            !ctx.TryReadUInt64(eventAddress + 0x10, out var data))
+            !KernelMemoryCompatExports.TryReadUInt64Compat(ctx, eventAddress + 0x10, out var data))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -438,7 +440,7 @@ public static class VideoOutExports
         }
 
         var decodedData = unchecked((ulong)(unchecked((long)data) >> 16));
-        return ctx.TryWriteUInt64(dataAddress, decodedData)
+        return KernelMemoryCompatExports.TryWriteUInt64Compat(ctx, dataAddress, decodedData)
             ? (int)OrbisGen2Result.ORBIS_GEN2_OK
             : (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
     }
@@ -590,7 +592,7 @@ public static class VideoOutExports
         BinaryPrimitives.WriteUInt32LittleEndian(attribute[0x10..0x14], height);
         BinaryPrimitives.WriteUInt32LittleEndian(attribute[0x14..0x18], pitchInPixel);
         BinaryPrimitives.WriteUInt32LittleEndian(attribute[0x18..0x1C], SceVideoOutBufferAttributeOptionNone);
-        if (!ctx.Memory.TryWrite(attributeAddress, attribute))
+        if (!KernelMemoryCompatExports.TryWriteCompat(ctx, attributeAddress, attribute))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -612,7 +614,7 @@ public static class VideoOutExports
         var height = unchecked((uint)ctx[CpuRegister.R8]);
         var option = ctx[CpuRegister.R9];
         if (!TryReadStackUInt32(ctx, 0, out var dccControl) ||
-            !ctx.TryReadUInt64(ctx[CpuRegister.Rsp] + 0x10, out var dccClearColor))
+            !KernelMemoryCompatExports.TryReadUInt64Compat(ctx, ctx[CpuRegister.Rsp] + 0x10, out var dccClearColor))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -631,7 +633,7 @@ public static class VideoOutExports
         BinaryPrimitives.WriteUInt64LittleEndian(attribute[0x20..0x28], pixelFormat);
         BinaryPrimitives.WriteUInt64LittleEndian(attribute[0x28..0x30], dccClearColor);
         BinaryPrimitives.WriteUInt32LittleEndian(attribute[0x30..0x34], dccControl);
-        if (!ctx.Memory.TryWrite(attributeAddress, attribute))
+        if (!KernelMemoryCompatExports.TryWriteCompat(ctx, attributeAddress, attribute))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -679,7 +681,7 @@ public static class VideoOutExports
         Span<ulong> addresses = stackalloc ulong[Math.Min(bufferNum, MaxDisplayBuffers)];
         for (var i = 0; i < bufferNum; i++)
         {
-            if (!ctx.TryReadUInt64(addressesAddress + ((ulong)i * 8), out addresses[i]))
+            if (!KernelMemoryCompatExports.TryReadUInt64Compat(ctx, addressesAddress + ((ulong)i * 8), out addresses[i]))
             {
                 return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
             }
@@ -701,8 +703,8 @@ public static class VideoOutExports
         var buffersAddress = ctx[CpuRegister.Rcx];
         var bufferNum = unchecked((int)ctx[CpuRegister.R8]);
         var attributeAddress = ctx[CpuRegister.R9];
-        if (!ctx.TryReadUInt64(ctx[CpuRegister.Rsp] + 0x08, out var categoryRaw) ||
-            !ctx.TryReadUInt64(ctx[CpuRegister.Rsp] + 0x10, out var option))
+        if (!KernelMemoryCompatExports.TryReadUInt64Compat(ctx, ctx[CpuRegister.Rsp] + 0x08, out var categoryRaw) ||
+            !KernelMemoryCompatExports.TryReadUInt64Compat(ctx, ctx[CpuRegister.Rsp] + 0x10, out var option))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -741,8 +743,8 @@ public static class VideoOutExports
         for (var i = 0; i < bufferNum; i++)
         {
             var entryAddress = buffersAddress + ((ulong)i * VideoOutBuffersEntrySize);
-            if (!ctx.TryReadUInt64(entryAddress + 0x00, out addresses[i]) ||
-                !ctx.TryReadUInt64(entryAddress + 0x08, out _))
+            if (!KernelMemoryCompatExports.TryReadUInt64Compat(ctx, entryAddress + 0x00, out addresses[i]) ||
+                !KernelMemoryCompatExports.TryReadUInt64Compat(ctx, entryAddress + 0x08, out _))
             {
                 return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
             }
@@ -798,8 +800,132 @@ public static class VideoOutExports
                 flipEvent.UserData);
         }
 
+        _ = TryPresentDisplayBuffer(ctx, port, bufferIndex);
         TraceVideoOut($"videoout.submit_flip handle={handle} index={bufferIndex} mode={flipMode} arg={flipArg} events={flipEvents.Count}");
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    private static bool TryPresentDisplayBuffer(CpuContext ctx, VideoOutPortState port, int bufferIndex)
+    {
+        if (bufferIndex < 0)
+        {
+            return false;
+        }
+
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        var previous = Volatile.Read(ref _lastPresentationTimestamp);
+        if (previous != 0 && now - previous < System.Diagnostics.Stopwatch.Frequency / 15)
+        {
+            return false;
+        }
+
+        VideoOutBufferSlot slot;
+        VideoOutBufferGroup? group;
+        lock (_stateGate)
+        {
+            slot = port.BufferSlots[bufferIndex];
+            group = slot.GroupIndex >= 0 && slot.GroupIndex < port.Groups.Length
+                ? port.Groups[slot.GroupIndex]
+                : null;
+        }
+
+        if (group is null || slot.AddressLeft == 0 ||
+            !TryReadDisplayBufferBgra(ctx, slot.AddressLeft, group.Attribute, out var bgra))
+        {
+            return false;
+        }
+
+        Interlocked.Exchange(ref _lastPresentationTimestamp, now);
+        VulkanVideoPresenter.Submit(bgra, group.Attribute.Width, group.Attribute.Height);
+        return true;
+    }
+
+    private static bool TryReadDisplayBufferBgra(
+        CpuContext ctx,
+        ulong address,
+        BufferAttribute attribute,
+        out byte[] bgra)
+    {
+        bgra = Array.Empty<byte>();
+        if (attribute.Width == 0 || attribute.Height == 0 ||
+            attribute.Width > 8192 || attribute.Height > 8192 ||
+            GetBytesPerPixel(attribute.PixelFormat) != 4)
+        {
+            return false;
+        }
+
+        var pitch = attribute.PitchInPixel == 0 ? attribute.Width : attribute.PitchInPixel;
+        var key = (attribute.Width, attribute.Height, pitch, attribute.TilingMode);
+        (int[] Offsets, int SourcePixels) layout;
+        lock (_stateGate)
+        {
+            if (!_presentationLayouts.TryGetValue(key, out layout))
+            {
+                var pixelCount = checked((int)(attribute.Width * attribute.Height));
+                var offsets = new int[pixelCount];
+                var maxOffset = 0;
+                var cursor = 0;
+                for (uint y = 0; y < attribute.Height; y++)
+                {
+                    for (uint x = 0; x < attribute.Width; x++)
+                    {
+                        var offset = attribute.TilingMode == SceVideoOutTilingModeLinear
+                            ? checked((int)((y * pitch) + x))
+                            : ComputePs5TiledPixelOffset(x, y, pitch);
+                        offsets[cursor++] = offset;
+                        maxOffset = Math.Max(maxOffset, offset);
+                    }
+                }
+
+                layout = (offsets, checked(maxOffset + 1));
+                _presentationLayouts[key] = layout;
+            }
+        }
+
+        var source = GC.AllocateUninitializedArray<byte>(checked(layout.SourcePixels * 4));
+        if (!ctx.Memory.TryRead(address, source))
+        {
+            return false;
+        }
+
+        bgra = GC.AllocateUninitializedArray<byte>(checked(layout.Offsets.Length * 4));
+        for (var destinationPixel = 0; destinationPixel < layout.Offsets.Length; destinationPixel++)
+        {
+            var sourceByte = layout.Offsets[destinationPixel] * 4;
+            var destinationByte = destinationPixel * 4;
+            bgra[destinationByte + 0] = source[sourceByte + 0];
+            bgra[destinationByte + 1] = source[sourceByte + 1];
+            bgra[destinationByte + 2] = source[sourceByte + 2];
+            bgra[destinationByte + 3] = source[sourceByte + 3];
+        }
+
+        return true;
+    }
+
+    private static int ComputePs5TiledPixelOffset(uint x, uint y, uint pitch)
+    {
+        ReadOnlySpan<ushort> xBasis = [1, 2, 32, 64, 2176, 512, 8448, 16384, 32768];
+        ReadOnlySpan<ushort> yBasis = [4, 8, 16, 1088, 128, 256, 4608];
+        var localX = x & 0x1FF;
+        var localY = y & 0x7F;
+        var localOffset = 0;
+        for (var bit = 0; bit < xBasis.Length; bit++)
+        {
+            if ((localX & (1u << bit)) != 0)
+            {
+                localOffset ^= xBasis[bit];
+            }
+        }
+        for (var bit = 0; bit < yBasis.Length; bit++)
+        {
+            if ((localY & (1u << bit)) != 0)
+            {
+                localOffset ^= yBasis[bit];
+            }
+        }
+
+        var macroOffset = (int)((((y >> 7) * (pitch / 512.0)) + (x >> 9)) * 65536.0);
+        return checked(macroOffset + localOffset);
     }
 
     private static int RegisterBufferRange(VideoOutPortState port, int startIndex, ReadOnlySpan<ulong> addresses, BufferAttribute attribute, int requestedGroupIndex = -1)
@@ -873,8 +999,8 @@ public static class VideoOutExports
 
         if (attribute2)
         {
-            if (!ctx.TryReadUInt64(attributeAddress + 0x18, out var option) ||
-                !ctx.TryReadUInt64(attributeAddress + 0x20, out var pixelFormat))
+            if (!KernelMemoryCompatExports.TryReadUInt64Compat(ctx, attributeAddress + 0x18, out var option) ||
+                !KernelMemoryCompatExports.TryReadUInt64Compat(ctx, attributeAddress + 0x20, out var pixelFormat))
             {
                 return false;
             }
@@ -1223,7 +1349,7 @@ public static class VideoOutExports
     {
         var address = ctx[CpuRegister.Rsp] + 0x08 + ((ulong)stackIndex * 0x08);
         Span<byte> buffer = stackalloc byte[sizeof(uint)];
-        if (!ctx.Memory.TryRead(address, buffer))
+        if (!KernelMemoryCompatExports.TryReadCompat(ctx, address, buffer))
         {
             value = 0;
             return false;
@@ -1236,7 +1362,7 @@ public static class VideoOutExports
     private static bool TryReadUInt32(CpuContext ctx, ulong address, out uint value)
     {
         Span<byte> buffer = stackalloc byte[sizeof(uint)];
-        if (!ctx.Memory.TryRead(address, buffer))
+        if (!KernelMemoryCompatExports.TryReadCompat(ctx, address, buffer))
         {
             value = 0;
             return false;
@@ -1249,7 +1375,7 @@ public static class VideoOutExports
     private static bool TryReadInt16(CpuContext ctx, ulong address, out short value)
     {
         Span<byte> buffer = stackalloc byte[sizeof(short)];
-        if (!ctx.Memory.TryRead(address, buffer))
+        if (!KernelMemoryCompatExports.TryReadCompat(ctx, address, buffer))
         {
             value = 0;
             return false;

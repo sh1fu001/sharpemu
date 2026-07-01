@@ -531,7 +531,7 @@ public sealed class CpuDispatcher : ICpuDispatcher, IDisposable
         }
 
         importStubs[stubAddress] = RuntimeStubNids.BootstrapBridge;
-        importStubs[stubAddress + 0x0A] = RuntimeStubNids.BootstrapBridge;
+        importStubs[stubAddress + 0x0A] = RuntimeStubNids.PayloadSyscall;
 
         context[CpuRegister.Rdi] = payloadAddress;
         return true;

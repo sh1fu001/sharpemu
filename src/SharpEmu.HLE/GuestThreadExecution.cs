@@ -29,6 +29,8 @@ public interface IGuestThreadScheduler
 
     bool TryStartThread(CpuContext creatorContext, GuestThreadStartRequest request, out string? error);
 
+    bool TryJoinThread(ulong threadHandle);
+
     void Pump(CpuContext callerContext, string reason);
 
     int WakeBlockedThreads(string wakeKey, int maxCount = int.MaxValue);

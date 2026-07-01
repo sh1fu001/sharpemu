@@ -49,6 +49,24 @@ public static class UserServiceExports
     }
 
     [SysAbiExport(
+        Nid = "__hle_foreground_user",
+        ExportName = "sceUserServiceGetForegroundUser",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceUserService")]
+    public static int UserServiceGetForegroundUser(CpuContext ctx)
+    {
+        var userIdAddress = ctx[CpuRegister.Rdi];
+        if (userIdAddress == 0)
+        {
+            return SetReturn(ctx, OrbisUserServiceErrorInvalidArgument);
+        }
+
+        return TryWriteInt32(ctx, userIdAddress, PrimaryUserId)
+            ? SetReturn(ctx, 0)
+            : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+    }
+
+    [SysAbiExport(
         Nid = "fPhymKNvK-A",
         ExportName = "sceUserServiceGetLoginUserIdList",
         Target = Generation.Gen4 | Generation.Gen5,

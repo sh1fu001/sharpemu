@@ -149,6 +149,7 @@ public static class KernelMemoryCompatExports
         public required string Path { get; init; }
         public required string[] Entries { get; init; }
         public int NextIndex { get; set; }
+        public nint DirentBuffer { get; set; }
     }
 
     private readonly record struct DirectAllocation(ulong Start, ulong Length, int MemoryType);
@@ -1226,6 +1227,877 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
+        Nid = "__hle_fprintf",
+        ExportName = "fprintf",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fprintf(CpuContext ctx)
+    {
+        var fd = unchecked((int)ctx[CpuRegister.Rdi]);
+        if (!TryReadNullTerminatedUtf8(ctx, ctx[CpuRegister.Rsi], MaxGuestStringLength, out var format))
+        {
+            ctx[CpuRegister.Rax] = ulong.MaxValue;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var rendered = FormatStringFromVarArgs(ctx, format, firstGpArgIndex: 2);
+        var bytes = Encoding.UTF8.GetBytes(rendered);
+        FileStream? stream;
+        lock (_fdGate)
+        {
+            _openFiles.TryGetValue(fd, out stream);
+        }
+        if (stream is not null)
+        {
+            stream.Write(bytes);
+        }
+        else
+        {
+            Console.Error.Write(rendered);
+        }
+        ctx[CpuRegister.Rax] = unchecked((ulong)bytes.Length);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_strstr",
+        ExportName = "strstr",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Strstr(CpuContext ctx)
+    {
+        var haystackAddress = ctx[CpuRegister.Rdi];
+        var needleAddress = ctx[CpuRegister.Rsi];
+        if (!TryReadCString(ctx, haystackAddress, 1_048_576, out var haystack) ||
+            !TryReadCString(ctx, needleAddress, 1_048_576, out var needle))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        var offset = needle.Length == 0
+            ? 0
+            : haystack.AsSpan().IndexOf(needle);
+        ctx[CpuRegister.Rax] = offset < 0
+            ? 0
+            : haystackAddress + unchecked((ulong)offset);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_strchr",
+        ExportName = "strchr",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Strchr(CpuContext ctx)
+    {
+        var address = ctx[CpuRegister.Rdi];
+        var target = unchecked((byte)ctx[CpuRegister.Rsi]);
+        if (!TryReadCString(ctx, address, 1_048_576, out var bytes))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        var offset = target == 0 ? bytes.Length : Array.IndexOf(bytes, target);
+        ctx[CpuRegister.Rax] = offset < 0 ? 0 : address + unchecked((ulong)offset);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_strrchr",
+        ExportName = "strrchr",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Strrchr(CpuContext ctx)
+    {
+        var address = ctx[CpuRegister.Rdi];
+        var target = unchecked((byte)ctx[CpuRegister.Rsi]);
+        if (!TryReadCString(ctx, address, 1_048_576, out var bytes))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        var offset = target == 0 ? bytes.Length : Array.LastIndexOf(bytes, target);
+        ctx[CpuRegister.Rax] = offset < 0 ? 0 : address + unchecked((ulong)offset);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_strlcpy",
+        ExportName = "strlcpy",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Strlcpy(CpuContext ctx)
+    {
+        var destination = ctx[CpuRegister.Rdi];
+        var source = ctx[CpuRegister.Rsi];
+        var capacity = ctx[CpuRegister.Rdx];
+        if (!TryReadCString(ctx, source, 1_048_576, out var sourceBytes))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        if (capacity != 0)
+        {
+            var copyLength = (int)Math.Min(
+                unchecked((ulong)sourceBytes.Length),
+                Math.Min(capacity - 1, int.MaxValue));
+            var payload = new byte[copyLength + 1];
+            sourceBytes.AsSpan(0, copyLength).CopyTo(payload);
+            if (!TryWriteCompat(ctx, destination, payload))
+            {
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+            }
+        }
+
+        ctx[CpuRegister.Rax] = unchecked((ulong)sourceBytes.Length);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_strlcat",
+        ExportName = "strlcat",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Strlcat(CpuContext ctx)
+    {
+        var destination = ctx[CpuRegister.Rdi];
+        var source = ctx[CpuRegister.Rsi];
+        var capacity = ctx[CpuRegister.Rdx];
+        if (!TryReadCString(ctx, destination, capacity, out var destinationBytes) ||
+            !TryReadCString(ctx, source, 1_048_576, out var sourceBytes))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        var destinationLength = unchecked((ulong)destinationBytes.Length);
+        if (destinationLength >= capacity)
+        {
+            ctx[CpuRegister.Rax] = capacity + unchecked((ulong)sourceBytes.Length);
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var remaining = capacity - destinationLength;
+        if (remaining > 1)
+        {
+            var copyLength = (int)Math.Min(
+                unchecked((ulong)sourceBytes.Length),
+                Math.Min(remaining - 1, int.MaxValue));
+            var payload = new byte[copyLength + 1];
+            sourceBytes.AsSpan(0, copyLength).CopyTo(payload);
+            if (!TryWriteCompat(ctx, destination + destinationLength, payload))
+            {
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+            }
+        }
+
+        ctx[CpuRegister.Rax] = destinationLength + unchecked((ulong)sourceBytes.Length);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_memchr",
+        ExportName = "memchr",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Memchr(CpuContext ctx)
+    {
+        var address = ctx[CpuRegister.Rdi];
+        var target = unchecked((byte)ctx[CpuRegister.Rsi]);
+        var count = ctx[CpuRegister.Rdx];
+        if (count == 0)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        Span<byte> chunk = stackalloc byte[256];
+        ulong offset = 0;
+        while (offset < count)
+        {
+            var length = (int)Math.Min(unchecked((ulong)chunk.Length), count - offset);
+            var current = chunk[..length];
+            if (!TryReadCompat(ctx, address + offset, current))
+            {
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+            }
+
+            var index = current.IndexOf(target);
+            if (index >= 0)
+            {
+                ctx[CpuRegister.Rax] = address + offset + unchecked((ulong)index);
+                return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+            }
+
+            offset += unchecked((ulong)length);
+        }
+
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_tolower",
+        ExportName = "tolower",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Tolower(CpuContext ctx)
+    {
+        var value = unchecked((int)ctx[CpuRegister.Rdi]);
+        ctx[CpuRegister.Rax] = unchecked((ulong)(
+            value is >= 'A' and <= 'Z' ? value + ('a' - 'A') : value));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_toupper",
+        ExportName = "toupper",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Toupper(CpuContext ctx)
+    {
+        var value = unchecked((int)ctx[CpuRegister.Rdi]);
+        ctx[CpuRegister.Rax] = unchecked((ulong)(
+            value is >= 'a' and <= 'z' ? value - ('a' - 'A') : value));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_atoi",
+        ExportName = "atoi",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Atoi(CpuContext ctx)
+    {
+        if (!TryReadCString(ctx, ctx[CpuRegister.Rdi], 1_048_576, out var bytes))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        _ = TryParseInteger(bytes, 10, out var magnitude, out var negative, out _);
+        ctx[CpuRegister.Rax] = negative
+            ? unchecked((ulong)-(long)magnitude)
+            : magnitude;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_strtol",
+        ExportName = "strtol",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Strtol(CpuContext ctx) => ParseIntegerExport(ctx, signed: true);
+
+    [SysAbiExport(
+        Nid = "__hle_strtoll",
+        ExportName = "strtoll",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Strtoll(CpuContext ctx) => ParseIntegerExport(ctx, signed: true);
+
+    [SysAbiExport(
+        Nid = "__hle_strtoul",
+        ExportName = "strtoul",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Strtoul(CpuContext ctx) => ParseIntegerExport(ctx, signed: false);
+
+    [SysAbiExport(
+        Nid = "__hle_strtoull",
+        ExportName = "strtoull",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Strtoull(CpuContext ctx) => ParseIntegerExport(ctx, signed: false);
+
+    private static int ParseIntegerExport(CpuContext ctx, bool signed)
+    {
+        var inputAddress = ctx[CpuRegister.Rdi];
+        var endPointerAddress = ctx[CpuRegister.Rsi];
+        var numberBase = unchecked((int)ctx[CpuRegister.Rdx]);
+        if (!TryReadCString(ctx, inputAddress, 1_048_576, out var bytes))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        var parsed = TryParseInteger(bytes, numberBase, out var magnitude, out var negative, out var consumed);
+        if (endPointerAddress != 0 &&
+            !TryWriteUInt64Compat(ctx, endPointerAddress, inputAddress + unchecked((ulong)(parsed ? consumed : 0))))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        ctx[CpuRegister.Rax] = signed && negative
+            ? unchecked((ulong)-(long)magnitude)
+            : magnitude;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    private static bool TryParseInteger(
+        ReadOnlySpan<byte> bytes,
+        int requestedBase,
+        out ulong magnitude,
+        out bool negative,
+        out int consumed)
+    {
+        magnitude = 0;
+        negative = false;
+        consumed = 0;
+        if (requestedBase != 0 && (requestedBase < 2 || requestedBase > 36))
+        {
+            return false;
+        }
+
+        var index = 0;
+        while (index < bytes.Length && bytes[index] is (byte)' ' or (byte)'\t' or (byte)'\n' or (byte)'\r' or (byte)'\f' or (byte)'\v')
+        {
+            index++;
+        }
+
+        if (index < bytes.Length && bytes[index] is (byte)'+' or (byte)'-')
+        {
+            negative = bytes[index] == (byte)'-';
+            index++;
+        }
+
+        var numberBase = requestedBase;
+        if ((numberBase == 0 || numberBase == 16) &&
+            index + 1 < bytes.Length &&
+            bytes[index] == (byte)'0' &&
+            bytes[index + 1] is (byte)'x' or (byte)'X')
+        {
+            numberBase = 16;
+            index += 2;
+        }
+        else if (numberBase == 0)
+        {
+            numberBase = index < bytes.Length && bytes[index] == (byte)'0' ? 8 : 10;
+        }
+
+        var digitStart = index;
+        while (index < bytes.Length)
+        {
+            var value = bytes[index] switch
+            {
+                >= (byte)'0' and <= (byte)'9' => bytes[index] - (byte)'0',
+                >= (byte)'a' and <= (byte)'z' => bytes[index] - (byte)'a' + 10,
+                >= (byte)'A' and <= (byte)'Z' => bytes[index] - (byte)'A' + 10,
+                _ => 255,
+            };
+            if (value >= numberBase)
+            {
+                break;
+            }
+
+            var digit = unchecked((ulong)value);
+            magnitude = magnitude > (ulong.MaxValue - digit) / unchecked((ulong)numberBase)
+                ? ulong.MaxValue
+                : (magnitude * unchecked((ulong)numberBase)) + digit;
+            index++;
+        }
+
+        if (index == digitStart)
+        {
+            magnitude = 0;
+            negative = false;
+            return false;
+        }
+
+        consumed = index;
+        return true;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fopen",
+        ExportName = "fopen",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fopen(CpuContext ctx)
+    {
+        if (!TryReadNullTerminatedUtf8(ctx, ctx[CpuRegister.Rdi], MaxGuestStringLength, out var guestPath) ||
+            !TryReadNullTerminatedUtf8(ctx, ctx[CpuRegister.Rsi], 16, out var mode))
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var hostPath = ResolveGuestPath(guestPath);
+        try
+        {
+            var plus = mode.Contains('+', StringComparison.Ordinal);
+            var access = plus || mode.StartsWith("w", StringComparison.Ordinal) || mode.StartsWith("a", StringComparison.Ordinal)
+                ? FileAccess.ReadWrite
+                : FileAccess.Read;
+            var fileMode = mode.StartsWith("w", StringComparison.Ordinal)
+                ? FileMode.Create
+                : mode.StartsWith("a", StringComparison.Ordinal)
+                    ? FileMode.OpenOrCreate
+                    : FileMode.Open;
+            if (fileMode != FileMode.Open)
+            {
+                var parent = Path.GetDirectoryName(hostPath);
+                if (!string.IsNullOrWhiteSpace(parent))
+                {
+                    Directory.CreateDirectory(parent);
+                }
+            }
+
+            var stream = new FileStream(hostPath, fileMode, access, FileShare.ReadWrite);
+            if (mode.StartsWith("a", StringComparison.Ordinal))
+            {
+                stream.Seek(0, SeekOrigin.End);
+            }
+            var fd = (int)Interlocked.Increment(ref _nextFileDescriptor);
+            lock (_fdGate)
+            {
+                _openFiles[fd] = stream;
+            }
+            LogOpenTrace($"fopen path='{guestPath}' host='{hostPath}' mode='{mode}' fd={fd}");
+            ctx[CpuRegister.Rax] = unchecked((uint)fd);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LogOpenTrace($"fopen miss path='{guestPath}' host='{hostPath}' mode='{mode}'");
+            ctx[CpuRegister.Rax] = 0;
+        }
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fclose",
+        ExportName = "fclose",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fclose(CpuContext ctx) => KernelCloseCore(ctx, unchecked((int)ctx[CpuRegister.Rdi]));
+
+    [SysAbiExport(
+        Nid = "__hle_fileno",
+        ExportName = "fileno",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fileno(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = unchecked((uint)ctx[CpuRegister.Rdi]);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fdopen",
+        ExportName = "fdopen",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fdopen(CpuContext ctx)
+    {
+        var fd = unchecked((int)ctx[CpuRegister.Rdi]);
+        lock (_fdGate)
+        {
+            ctx[CpuRegister.Rax] = _openFiles.ContainsKey(fd) || fd is 0 or 1 or 2
+                ? unchecked((uint)fd)
+                : 0;
+        }
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fread",
+        ExportName = "fread",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fread(CpuContext ctx)
+    {
+        var destination = ctx[CpuRegister.Rdi];
+        var elementSize = ctx[CpuRegister.Rsi];
+        var elementCount = ctx[CpuRegister.Rdx];
+        var fd = unchecked((int)ctx[CpuRegister.Rcx]);
+        if (destination == 0 || elementSize == 0 || elementCount == 0 ||
+            elementSize > int.MaxValue || elementCount > int.MaxValue ||
+            elementSize * elementCount > int.MaxValue)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        FileStream? stream;
+        lock (_fdGate)
+        {
+            _openFiles.TryGetValue(fd, out stream);
+        }
+        if (stream is null)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var buffer = new byte[(int)(elementSize * elementCount)];
+        int read;
+        try
+        {
+            read = stream.Read(buffer);
+        }
+        catch (IOException)
+        {
+            read = 0;
+        }
+        if (read != 0 && !TryWriteCompat(ctx, destination, buffer.AsSpan(0, read)))
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+        ctx[CpuRegister.Rax] = unchecked((ulong)read) / elementSize;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fwrite",
+        ExportName = "fwrite",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fwrite(CpuContext ctx)
+    {
+        var source = ctx[CpuRegister.Rdi];
+        var elementSize = ctx[CpuRegister.Rsi];
+        var elementCount = ctx[CpuRegister.Rdx];
+        var fd = unchecked((int)ctx[CpuRegister.Rcx]);
+        if (source == 0 || elementSize == 0 || elementCount == 0 ||
+            elementSize > int.MaxValue || elementCount > int.MaxValue ||
+            elementSize * elementCount > int.MaxValue)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var buffer = new byte[(int)(elementSize * elementCount)];
+        if (!TryReadCompat(ctx, source, buffer))
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        FileStream? stream;
+        lock (_fdGate)
+        {
+            _openFiles.TryGetValue(fd, out stream);
+        }
+        if (stream is not null)
+        {
+            try
+            {
+                stream.Write(buffer);
+            }
+            catch (IOException)
+            {
+                ctx[CpuRegister.Rax] = 0;
+                return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+            }
+        }
+        else
+        {
+            Console.Error.Write(Encoding.UTF8.GetString(buffer));
+        }
+        ctx[CpuRegister.Rax] = elementCount;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fseek",
+        ExportName = "fseek",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fseek(CpuContext ctx)
+    {
+        return FseekCore(ctx);
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fseeko",
+        ExportName = "fseeko",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fseeko(CpuContext ctx)
+    {
+        return FseekCore(ctx);
+    }
+
+    private static int FseekCore(CpuContext ctx)
+    {
+        var fd = unchecked((int)ctx[CpuRegister.Rdi]);
+        var result = KernelLseekCore(fd, unchecked((long)ctx[CpuRegister.Rsi]), unchecked((int)ctx[CpuRegister.Rdx]), out _);
+        ctx[CpuRegister.Rax] = result == OrbisGen2Result.ORBIS_GEN2_OK ? 0 : ulong.MaxValue;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_ftell",
+        ExportName = "ftell",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Ftell(CpuContext ctx) => FtellCore(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_ftello",
+        ExportName = "ftello",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Ftello(CpuContext ctx) => FtellCore(ctx);
+
+    private static int FtellCore(CpuContext ctx)
+    {
+        FileStream? stream;
+        lock (_fdGate)
+        {
+            _openFiles.TryGetValue(unchecked((int)ctx[CpuRegister.Rdi]), out stream);
+        }
+        ctx[CpuRegister.Rax] = stream is null ? ulong.MaxValue : unchecked((ulong)stream.Position);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fflush",
+        ExportName = "fflush",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fflush(CpuContext ctx)
+    {
+        lock (_fdGate)
+        {
+            if (_openFiles.TryGetValue(unchecked((int)ctx[CpuRegister.Rdi]), out var stream))
+            {
+                stream.Flush();
+            }
+        }
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_ferror",
+        ExportName = "ferror",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Ferror(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fgetc",
+        ExportName = "fgetc",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fgetc(CpuContext ctx)
+    {
+        FileStream? stream;
+        lock (_fdGate)
+        {
+            _openFiles.TryGetValue(unchecked((int)ctx[CpuRegister.Rdi]), out stream);
+        }
+        ctx[CpuRegister.Rax] = stream is null ? ulong.MaxValue : unchecked((ulong)stream.ReadByte());
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fputc",
+        ExportName = "fputc",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fputc(CpuContext ctx)
+    {
+        var value = unchecked((byte)ctx[CpuRegister.Rdi]);
+        FileStream? stream;
+        lock (_fdGate)
+        {
+            _openFiles.TryGetValue(unchecked((int)ctx[CpuRegister.Rsi]), out stream);
+        }
+        if (stream is not null)
+        {
+            stream.WriteByte(value);
+        }
+        else
+        {
+            Console.Error.Write((char)value);
+        }
+        ctx[CpuRegister.Rax] = value;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_fgets",
+        ExportName = "fgets",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Fgets(CpuContext ctx)
+    {
+        var destination = ctx[CpuRegister.Rdi];
+        var capacity = Math.Min(ctx[CpuRegister.Rsi], (ulong)int.MaxValue);
+        FileStream? stream;
+        lock (_fdGate)
+        {
+            _openFiles.TryGetValue(unchecked((int)ctx[CpuRegister.Rdx]), out stream);
+        }
+        if (destination == 0 || capacity < 2 || stream is null)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var buffer = new List<byte>((int)Math.Min(capacity, 4096));
+        while ((ulong)buffer.Count + 1 < capacity)
+        {
+            var value = stream.ReadByte();
+            if (value < 0)
+            {
+                break;
+            }
+            buffer.Add((byte)value);
+            if (value == '\n')
+            {
+                break;
+            }
+        }
+        if (buffer.Count == 0)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+        buffer.Add(0);
+        ctx[CpuRegister.Rax] = TryWriteCompat(ctx, destination, CollectionsMarshal.AsSpan(buffer))
+            ? destination
+            : 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_ungetc",
+        ExportName = "ungetc",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Ungetc(CpuContext ctx)
+    {
+        FileStream? stream;
+        lock (_fdGate)
+        {
+            _openFiles.TryGetValue(unchecked((int)ctx[CpuRegister.Rsi]), out stream);
+        }
+        if (stream is null || !stream.CanSeek || stream.Position == 0)
+        {
+            ctx[CpuRegister.Rax] = ulong.MaxValue;
+        }
+        else
+        {
+            stream.Position--;
+            ctx[CpuRegister.Rax] = ctx[CpuRegister.Rdi] & 0xFF;
+        }
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_stat",
+        ExportName = "stat",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int PosixStat(CpuContext ctx) => KernelStat(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_fstat",
+        ExportName = "fstat",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int PosixFstat(CpuContext ctx) => KernelFstat(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_mkdir",
+        ExportName = "mkdir",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int PosixMkdir(CpuContext ctx) => KernelMkdir(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_remove",
+        ExportName = "remove",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Remove(CpuContext ctx) => KernelUnlink(ctx);
+
+    [SysAbiExport(
+        Nid = "__hle_opendir",
+        ExportName = "opendir",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Opendir(CpuContext ctx)
+    {
+        if (!TryReadNullTerminatedUtf8(ctx, ctx[CpuRegister.Rdi], MaxGuestStringLength, out var guestPath))
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+        var hostPath = ResolveGuestPath(guestPath);
+        if (!Directory.Exists(hostPath))
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var fd = (int)Interlocked.Increment(ref _nextFileDescriptor);
+        lock (_fdGate)
+        {
+            _openDirectories[fd] = new OpenDirectory
+            {
+                Path = hostPath,
+                Entries = EnumerateDirectoryEntries(hostPath),
+                NextIndex = 0,
+            };
+        }
+        ctx[CpuRegister.Rax] = unchecked((uint)fd);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_readdir",
+        ExportName = "readdir",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Readdir(CpuContext ctx)
+    {
+        OpenDirectory? directory;
+        string? entryName = null;
+        lock (_fdGate)
+        {
+            if (_openDirectories.TryGetValue(unchecked((int)ctx[CpuRegister.Rdi]), out directory) &&
+                directory.NextIndex < directory.Entries.Length)
+            {
+                entryName = directory.Entries[directory.NextIndex++];
+                directory.DirentBuffer = directory.DirentBuffer == 0
+                    ? Marshal.AllocHGlobal(512)
+                    : directory.DirentBuffer;
+            }
+        }
+        if (directory is null || entryName is null || directory.DirentBuffer == 0)
+        {
+            ctx[CpuRegister.Rax] = 0;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        var nameBytes = Encoding.UTF8.GetBytes(entryName);
+        var nameLength = Math.Min(nameBytes.Length, 255);
+        var dirent = new byte[512];
+        BinaryPrimitives.WriteUInt32LittleEndian(dirent.AsSpan(0, 4), unchecked((uint)entryName.GetHashCode()));
+        BinaryPrimitives.WriteUInt16LittleEndian(dirent.AsSpan(4, 2), unchecked((ushort)(8 + nameLength + 1)));
+        dirent[6] = Directory.Exists(Path.Combine(directory.Path, entryName)) ? (byte)4 : (byte)8;
+        dirent[7] = unchecked((byte)nameLength);
+        nameBytes.AsSpan(0, nameLength).CopyTo(dirent.AsSpan(8));
+        Marshal.Copy(dirent, 0, directory.DirentBuffer, dirent.Length);
+        ctx[CpuRegister.Rax] = unchecked((ulong)directory.DirentBuffer);
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "__hle_closedir",
+        ExportName = "closedir",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Closedir(CpuContext ctx) =>
+        KernelCloseCore(ctx, unchecked((int)ctx[CpuRegister.Rdi]));
+
+    [SysAbiExport(
         Nid = "6c3rCVE-fTU",
         ExportName = "_open",
         Target = Generation.Gen4 | Generation.Gen5,
@@ -1638,15 +2510,14 @@ public static class KernelMemoryCompatExports
         }
 
         FileStream? stream;
+        OpenDirectory? directory = null;
         lock (_fdGate)
         {
             if (_openFiles.Remove(fd, out stream))
             {
             }
-            else if (_openDirectories.Remove(fd))
+            else if (_openDirectories.Remove(fd, out directory))
             {
-                ctx[CpuRegister.Rax] = 0;
-                return (int)OrbisGen2Result.ORBIS_GEN2_OK;
             }
             else
             {
@@ -1654,7 +2525,11 @@ public static class KernelMemoryCompatExports
             }
         }
 
-        stream.Dispose();
+        stream?.Dispose();
+        if (directory is { DirentBuffer: not 0 } openDirectory)
+        {
+            Marshal.FreeHGlobal(openDirectory.DirentBuffer);
+        }
         ctx[CpuRegister.Rax] = 0;
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
@@ -2261,7 +3136,7 @@ public static class KernelMemoryCompatExports
             }
         }
 
-        if (!ctx.TryWriteUInt64(outAddress, selectedAddress))
+        if (!TryWriteUInt64Compat(ctx, outAddress, selectedAddress))
         {
             TraceDirectMemoryCall(
                 ctx,
@@ -2355,7 +3230,7 @@ public static class KernelMemoryCompatExports
             }
         }
 
-        if (!ctx.TryWriteUInt64(outAddress, aligned))
+        if (!TryWriteUInt64Compat(ctx, outAddress, aligned))
         {
             TraceDirectMemoryCall(
                 ctx,
@@ -2492,7 +3367,7 @@ public static class KernelMemoryCompatExports
                 DirectStart: directMemoryStart);
         }
 
-        if (!ctx.TryWriteUInt64(inOutAddressPointer, mappedAddress))
+        if (!TryWriteUInt64Compat(ctx, inOutAddressPointer, mappedAddress))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -2571,7 +3446,7 @@ public static class KernelMemoryCompatExports
                 DirectStart: 0);
         }
 
-        if (!ctx.TryWriteUInt64(inOutAddressPointer, mappedAddress))
+        if (!TryWriteUInt64Compat(ctx, inOutAddressPointer, mappedAddress))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
@@ -4104,6 +4979,17 @@ public static class KernelMemoryCompatExports
         var app0Root = ResolveApp0Root();
         if (!string.IsNullOrWhiteSpace(app0Root))
         {
+            if (string.Equals(guestPath, "/user/homebrew", StringComparison.OrdinalIgnoreCase))
+            {
+                return app0Root;
+            }
+
+            if (guestPath.StartsWith("/user/homebrew/", StringComparison.OrdinalIgnoreCase))
+            {
+                var relative = NormalizeMountRelativePath(guestPath["/user/homebrew/".Length..]);
+                return Path.Combine(app0Root, relative);
+            }
+
             if (string.Equals(guestPath, "/app0", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(guestPath, "app0", StringComparison.OrdinalIgnoreCase))
             {
@@ -4644,7 +5530,7 @@ public static class KernelMemoryCompatExports
         return !string.IsNullOrWhiteSpace(guestPath);
     }
 
-    private static bool TryReadCompat(CpuContext ctx, ulong address, Span<byte> destination)
+    internal static bool TryReadCompat(CpuContext ctx, ulong address, Span<byte> destination)
     {
         if (destination.IsEmpty)
         {
@@ -4671,7 +5557,7 @@ public static class KernelMemoryCompatExports
         return true;
     }
 
-    private static bool TryReadUInt32Compat(CpuContext ctx, ulong address, out uint value)
+    internal static bool TryReadUInt32Compat(CpuContext ctx, ulong address, out uint value)
     {
         Span<byte> bytes = stackalloc byte[sizeof(uint)];
         if (!TryReadCompat(ctx, address, bytes))
@@ -4710,7 +5596,7 @@ public static class KernelMemoryCompatExports
         return true;
     }
 
-    private static bool TryWriteCompat(CpuContext ctx, ulong address, ReadOnlySpan<byte> source)
+    internal static bool TryWriteCompat(CpuContext ctx, ulong address, ReadOnlySpan<byte> source)
     {
         if (source.IsEmpty)
         {

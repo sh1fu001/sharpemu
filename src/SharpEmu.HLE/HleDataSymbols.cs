@@ -12,6 +12,11 @@ public static class HleDataSymbols
     private const string ProgNameNid = "djxxOmW6-aw";
     private const string LibcNeedFlagNid = "P330P3dFF68";
     private const string LibcInternalNeedFlagNid = "ZT4ODD2Ts9o";
+    private const string IsThreadedName = "__isthreaded";
+    private const string StdoutName = "__stdoutp";
+    private const string StderrName = "__stderrp";
+    private const string StdinName = "__stdinp";
+    private const string EnvironName = "environ";
     private const int ProgNameMaxBytes = 511;
     private const ulong StackChkGuardValue = 0xC0DEC0DECAFEBABEUL;
 
@@ -21,6 +26,12 @@ public static class HleDataSymbols
     private static readonly nint _progNamePointerAddress = Allocate(nint.Size);
     private static readonly nint _libcNeedFlagAddress = Allocate(sizeof(uint));
     private static readonly nint _libcInternalNeedFlagAddress = Allocate(sizeof(uint));
+    private static readonly nint _isThreadedAddress = Allocate(sizeof(uint));
+    private static readonly nint _stdoutPointerAddress = Allocate(nint.Size);
+    private static readonly nint _stderrPointerAddress = Allocate(nint.Size);
+    private static readonly nint _stdinPointerAddress = Allocate(nint.Size);
+    private static readonly nint _argvAddress = Allocate(nint.Size * 2);
+    private static readonly nint _environAddress = Allocate(nint.Size);
 
     static HleDataSymbols()
     {
@@ -42,6 +53,19 @@ public static class HleDataSymbols
             Marshal.WriteInt32(_libcInternalNeedFlagAddress, 1);
         }
 
+        if (_isThreadedAddress != 0)
+        {
+            Marshal.WriteInt32(_isThreadedAddress, 0);
+        }
+
+        InitializeStreamPointer(_stdoutPointerAddress);
+        InitializeStreamPointer(_stderrPointerAddress);
+        InitializeStreamPointer(_stdinPointerAddress);
+        if (_argvAddress != 0)
+        {
+            WritePointer(_argvAddress, _progNameBufferAddress);
+        }
+
         ConfigureProcessImageName("eboot.bin");
     }
 
@@ -51,6 +75,11 @@ public static class HleDataSymbols
         yield return ProgNameNid;
         yield return LibcNeedFlagNid;
         yield return LibcInternalNeedFlagNid;
+        yield return IsThreadedName;
+        yield return StdoutName;
+        yield return StderrName;
+        yield return StdinName;
+        yield return EnvironName;
     }
 
     public static void ConfigureProcessImageName(string? processImageName)
@@ -86,6 +115,11 @@ public static class HleDataSymbols
             ProgNameNid => _progNamePointerAddress,
             LibcNeedFlagNid => _libcNeedFlagAddress,
             LibcInternalNeedFlagNid => _libcInternalNeedFlagAddress,
+            IsThreadedName => _isThreadedAddress,
+            StdoutName => _stdoutPointerAddress,
+            StderrName => _stderrPointerAddress,
+            StdinName => _stdinPointerAddress,
+            EnvironName => _environAddress,
             _ => 0,
         };
 
@@ -97,6 +131,12 @@ public static class HleDataSymbols
 
         address = unchecked((ulong)pointer);
         return true;
+    }
+
+    public static bool TryGetProcessArgv(out ulong address)
+    {
+        address = unchecked((ulong)_argvAddress);
+        return _argvAddress != 0;
     }
 
     private static nint Allocate(int size)
@@ -126,5 +166,13 @@ public static class HleDataSymbols
         }
 
         Marshal.WriteInt64(target, value.ToInt64());
+    }
+
+    private static void InitializeStreamPointer(nint pointerAddress)
+    {
+        if (pointerAddress != 0)
+        {
+            WritePointer(pointerAddress, pointerAddress);
+        }
     }
 }
