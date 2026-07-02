@@ -164,8 +164,29 @@ public static class PadExports
         ExportName = "scePadSetLightBar",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libScePad")]
-    public static int PadSetLightBar(CpuContext ctx) =>
-        ValidateOpenHandle(ctx);
+    public static int PadSetLightBar(CpuContext ctx)
+    {
+        var handle = unchecked((int)ctx[CpuRegister.Rdi]);
+        var parameterAddress = ctx[CpuRegister.Rsi];
+        if (handle != PrimaryPadHandle)
+        {
+            return SetReturn(ctx, OrbisPadErrorInvalidHandle);
+        }
+
+        if (parameterAddress == 0)
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+        }
+
+        Span<byte> color = stackalloc byte[3];
+        if (!KernelMemoryCompatExports.TryReadCompat(ctx, parameterAddress, color))
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+
+        HostPadOutputCache.SetLightBar(color[0], color[1], color[2]);
+        return SetReturn(ctx, 0);
+    }
 
     [SysAbiExport(
         Nid = "6ncge5+l5Qs",
@@ -248,7 +269,32 @@ public static class PadExports
         data[0x08] = hostState.LeftTrigger;
         data[0x09] = hostState.RightTrigger;
         BinaryPrimitives.WriteSingleLittleEndian(data[0x18..], 1.0f);
-        data[0x4C] = 1;
+        var motion = HostPadMotionStateCache.Read();
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x0C..], motion.OrientationX);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x10..], motion.OrientationY);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x14..], motion.OrientationZ);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x18..], motion.OrientationW);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x1C..], motion.AccelerationX);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x20..], motion.AccelerationY);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x24..], motion.AccelerationZ);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x28..], motion.AngularVelocityX);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x2C..], motion.AngularVelocityY);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x30..], motion.AngularVelocityZ);
+        var touchCount = 0;
+        if (motion.Touch0Active)
+        {
+            WriteTouch(data[(0x38 + (touchCount * 8))..], motion.Touch0X, motion.Touch0Y, motion.Touch0Id);
+            touchCount++;
+        }
+
+        if (motion.Touch1Active)
+        {
+            WriteTouch(data[(0x38 + (touchCount * 8))..], motion.Touch1X, motion.Touch1Y, motion.Touch1Id);
+            touchCount++;
+        }
+
+        data[0x34] = (byte)touchCount;
+        data[0x48] = hostState.GamepadConnected ? (byte)1 : (byte)0;
         var timestampTicks = Stopwatch.GetTimestamp();
         var timestampMicroseconds =
             ((ulong)(timestampTicks / Stopwatch.Frequency) * 1_000_000UL) +
@@ -259,6 +305,17 @@ public static class PadExports
         data[0x68] = 1;
 
         return KernelMemoryCompatExports.TryWriteCompat(ctx, dataAddress, data);
+    }
+
+    private static void WriteTouch(
+        Span<byte> destination,
+        ushort x,
+        ushort y,
+        byte id)
+    {
+        BinaryPrimitives.WriteUInt16LittleEndian(destination, x);
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[2..], y);
+        destination[4] = id;
     }
 
     private static int ValidateOpenHandle(CpuContext ctx) =>

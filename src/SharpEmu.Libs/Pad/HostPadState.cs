@@ -112,7 +112,11 @@ internal static class HostPadStateCache
 
 internal static class HostPadOutputCache
 {
+    private static readonly object TriggerSync = new();
     private static int _vibration;
+    private static int _lightBar;
+    private static DualSenseTriggerEffect _leftTrigger;
+    private static DualSenseTriggerEffect _rightTrigger;
 
     internal static void SetVibration(byte largeMotor, byte smallMotor) =>
         Volatile.Write(ref _vibration, largeMotor | (smallMotor << 8));
@@ -122,6 +126,98 @@ internal static class HostPadOutputCache
         var packed = Volatile.Read(ref _vibration);
         return ((byte)packed, (byte)(packed >> 8));
     }
+
+    internal static void SetLightBar(byte red, byte green, byte blue) =>
+        Volatile.Write(ref _lightBar, red | (green << 8) | (blue << 16) | (1 << 24));
+
+    internal static (byte Red, byte Green, byte Blue, bool IsSet) ReadLightBar()
+    {
+        var packed = Volatile.Read(ref _lightBar);
+        return (
+            (byte)packed,
+            (byte)(packed >> 8),
+            (byte)(packed >> 16),
+            (packed & (1 << 24)) != 0);
+    }
+
+    internal static void SetAdaptiveTriggers(
+        in DualSenseTriggerEffect left,
+        in DualSenseTriggerEffect right)
+    {
+        lock (TriggerSync)
+        {
+            _leftTrigger = left;
+            _rightTrigger = right;
+        }
+    }
+
+    internal static (DualSenseTriggerEffect Left, DualSenseTriggerEffect Right)
+        ReadAdaptiveTriggers()
+    {
+        lock (TriggerSync)
+        {
+            return (_leftTrigger, _rightTrigger);
+        }
+    }
+}
+
+internal readonly record struct DualSenseTriggerEffect(
+    byte Mode,
+    byte StartPosition,
+    byte Force)
+{
+    internal static DualSenseTriggerEffect Off { get; } = new(0, 0, 0);
+
+    internal static DualSenseTriggerEffect Resistance(byte startPosition, byte force) =>
+        new(0x01, (byte)Math.Min(startPosition, (byte)9), (byte)Math.Min(force, (byte)8));
+}
+
+internal readonly record struct HostPadMotionState(
+    float OrientationX,
+    float OrientationY,
+    float OrientationZ,
+    float OrientationW,
+    float AccelerationX,
+    float AccelerationY,
+    float AccelerationZ,
+    float AngularVelocityX,
+    float AngularVelocityY,
+    float AngularVelocityZ,
+    ushort Touch0X,
+    ushort Touch0Y,
+    byte Touch0Id,
+    bool Touch0Active,
+    ushort Touch1X,
+    ushort Touch1Y,
+    byte Touch1Id,
+    bool Touch1Active)
+{
+    internal static HostPadMotionState Neutral { get; } =
+        new(0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, 0, 0, 0, false);
+}
+
+internal static class HostPadMotionStateCache
+{
+    private static readonly object Sync = new();
+    private static HostPadMotionState _state = HostPadMotionState.Neutral;
+
+    internal static void Publish(in HostPadMotionState state)
+    {
+        lock (Sync)
+        {
+            _state = state;
+        }
+    }
+
+    internal static HostPadMotionState Read()
+    {
+        lock (Sync)
+        {
+            return _state;
+        }
+    }
+
+    internal static void Reset() => Publish(HostPadMotionState.Neutral);
 }
 
 internal static class PadStateMapper
@@ -254,7 +350,7 @@ internal static class PadStateMapper
         y *= scale;
     }
 
-    private static uint ReadKeyboardButtons(IReadOnlyList<IKeyboard> keyboards)
+    internal static uint ReadKeyboardButtons(IReadOnlyList<IKeyboard> keyboards)
     {
         IKeyboard? keyboard = null;
         for (var index = 0; index < keyboards.Count; index++)
@@ -282,6 +378,53 @@ internal static class PadStateMapper
         if (keyboard.IsKeyPressed(Key.F)) buttons |= PadButtonMasks.Square;
         if (keyboard.IsKeyPressed(Key.P)) buttons |= PadButtonMasks.Options;
         return buttons;
+    }
+}
+
+internal static class PadKeyboardCompatibility
+{
+    internal const ushort HidEnter = 0x28;
+    internal const ushort HidEscape = 0x29;
+    internal const ushort HidSpace = 0x2C;
+    internal const ushort HidRight = 0x4F;
+    internal const ushort HidLeft = 0x50;
+    internal const ushort HidDown = 0x51;
+    internal const ushort HidUp = 0x52;
+    internal const ushort HidF = 0x09;
+    internal const ushort HidP = 0x13;
+    internal const ushort HidR = 0x15;
+
+    private const byte NegativeStickThreshold = 64;
+    private const byte PositiveStickThreshold = 192;
+
+    internal static bool Enabled =>
+        !string.Equals(
+            Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_GAMEPAD_KEYBOARD_COMPAT"),
+            "1",
+            StringComparison.Ordinal);
+
+    internal static ushort ReadKeycode(in HostPadState state)
+    {
+        if (!Enabled || !state.GamepadConnected)
+        {
+            return 0;
+        }
+
+        var buttons = state.Buttons;
+        if ((buttons & PadButtonMasks.Cross) != 0) return HidSpace;
+        if ((buttons & PadButtonMasks.Circle) != 0) return HidEscape;
+        if ((buttons & PadButtonMasks.Triangle) != 0) return HidR;
+        if ((buttons & PadButtonMasks.Square) != 0) return HidF;
+        if ((buttons & PadButtonMasks.Options) != 0) return HidEnter;
+        if ((buttons & PadButtonMasks.Right) != 0 ||
+            state.LeftStickX >= PositiveStickThreshold) return HidRight;
+        if ((buttons & PadButtonMasks.Left) != 0 ||
+            state.LeftStickX <= NegativeStickThreshold) return HidLeft;
+        if ((buttons & PadButtonMasks.Down) != 0 ||
+            state.LeftStickY >= PositiveStickThreshold) return HidDown;
+        if ((buttons & PadButtonMasks.Up) != 0 ||
+            state.LeftStickY <= NegativeStickThreshold) return HidUp;
+        return 0;
     }
 }
 

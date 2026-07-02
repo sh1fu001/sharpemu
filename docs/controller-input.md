@@ -5,9 +5,11 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 # Controller Input
 
-SharpEmu reads controllers through the Silk.NET input context owned by the
-VideoOut window. This keeps window events and device polling on one host thread
-while guest `scePadRead` calls consume a lock-free snapshot.
+SharpEmu reads standard controllers through the Silk.NET input context owned by
+the VideoOut window. On Windows, a USB DualSense or DualSense Edge is opened
+through its native HID interface and takes priority over the standardized
+gamepad path. Guest `scePadRead` calls consume thread-safe snapshots without
+blocking on host I/O.
 
 The implementation supports hot-plugging and prioritizes a controller whose
 reported name contains `DualSense`, `PS5` or `Wireless Controller`. Otherwise,
@@ -16,13 +18,22 @@ window is unfocused.
 
 ## DualSense Setup
 
-1. Connect the DualSense over USB, or pair it over Bluetooth in the host
-   operating system.
+1. Connect the DualSense over USB. Bluetooth continues through the standard
+   gamepad fallback.
 2. Start a title and wait for the `SharpEmu - VideoOut` window.
 3. Keep the VideoOut window focused while using the controller.
 4. Enable `SHARPEMU_LOG_PAD=1` when verifying button transitions.
 
-The host log reports the selected device index, name and deadzone.
+The host log reports `Native DualSense HID connected` when the native backend
+is active, as well as the standardized device index, name and deadzone.
+
+The native USB backend provides:
+
+- buttons, sticks and analog triggers;
+- gyroscope and accelerometer samples;
+- both touch contacts and the touch-pad click;
+- compatible haptics and guest-controlled light bar;
+- DualSense adaptive-trigger resistance report generation.
 
 ## Mapping
 
@@ -63,6 +74,7 @@ Configuration uses environment variables set before starting SharpEmu:
 | `SHARPEMU_GAMEPAD_INDEX` | Select a host gamepad by Silk.NET device index | Prefer DualSense, then first gamepad |
 | `SHARPEMU_GAMEPAD_DEADZONE` | Radial stick deadzone from `0.0` to `0.95` | `0.12` |
 | `SHARPEMU_DISABLE_GAMEPAD=1` | Disable physical gamepad input | Disabled |
+| `SHARPEMU_DISABLE_GAMEPAD_KEYBOARD_COMPAT=1` | Disable mapping pad controls to guest keyboard input | Disabled |
 | `SHARPEMU_LOG_PAD=1` | Log guest button-mask transitions | Disabled |
 | `SHARPEMU_PAD_STATE_FILE` | OR a hexadecimal button mask into live input | Unset |
 
@@ -79,17 +91,31 @@ $env:SHARPEMU_LOG_PAD = "1"
 
 - Host devices are polled once per window update, rather than once per guest
   `scePadRead`.
-- A compact seqlock snapshot transfers state between the host and guest threads
-  without locks or allocations in the read path.
+- A compact seqlock transfers the common pad state. Motion/touch data use a
+  separate synchronized snapshot.
 - Stick deadzones are radial, preserving direction and full-scale range.
 - Button-state files are refreshed at most 60 times per second.
 - Vibration updates are coalesced and sent only when intensity changes.
 
 ## Current Limitations
 
-- Basic vibration is forwarded only when the selected Silk.NET backend exposes
-  vibration motors. The current GLFW backend may report none.
-- Adaptive triggers, speaker output, light bar control, motion sensors and
-  touch coordinates require a future native DualSense backend.
-- The standardized gamepad API does not expose the DualSense touch surface, so
-  the Back/Create control is mapped to the guest touch-pad click.
+- Native HID access currently targets Windows USB. Bluetooth DualSense input
+  works through Silk.NET but does not expose motion, touch or native outputs.
+- Adaptive-trigger reports are implemented in the transport, but a game can
+  drive them only after its corresponding Gen5 pad-effect export is added.
+- Speaker and microphone audio routing are not implemented.
+- On non-native controllers, Back/Create remains mapped to touch-pad click
+  because standardized gamepad APIs do not expose touch coordinates.
+
+## Keyboard Compatibility
+
+Like the compatibility output used by controller mappers such as DS4Windows,
+SharpEmu also exposes common gamepad actions through the guest keyboard API.
+This helps PC-derived homebrew titles that open a pad but continue consuming
+their keyboard bindings. The native PlayStation pad state remains available at
+the same time.
+
+The D-pad and left stick map to the arrow keys. Cross maps to Space, Circle to
+Escape, Options to Enter, Triangle to R and Square to F. Set
+`SHARPEMU_DISABLE_GAMEPAD_KEYBOARD_COMPAT=1` when a title consumes both APIs
+and duplicate actions are undesirable.

@@ -139,7 +139,8 @@ public sealed class PadInputTests
             Assert.Equal(40, data[0x07]);
             Assert.Equal(50, data[0x08]);
             Assert.Equal(60, data[0x09]);
-            Assert.Equal(1, data[0x4C]);
+            Assert.Equal(1, data[0x48]);
+            Assert.Equal(0, data[0x4C]);
         }
         finally
         {
@@ -160,6 +161,105 @@ public sealed class PadInputTests
         Assert.Equal(((byte)200, (byte)75), HostPadOutputCache.ReadVibration());
 
         HostPadOutputCache.SetVibration(0, 0);
+    }
+
+    [Fact]
+    public void DualSenseUsbReport_MapsNativeButtonsMotionAndTouch()
+    {
+        var report = new byte[DualSenseHidReport.UsbInputLength];
+        report[0] = 0x01;
+        report[1] = 128;
+        report[2] = 128;
+        report[3] = 255;
+        report[4] = 0;
+        report[5] = 42;
+        report[6] = 84;
+        report[8] = 0x20 | 0x02;
+        report[9] = 0x21;
+        report[10] = 0x02;
+        BinaryPrimitives.WriteInt16LittleEndian(report.AsSpan(16), 160);
+        BinaryPrimitives.WriteInt16LittleEndian(report.AsSpan(22), 8192);
+        report[33] = 7;
+        report[34] = 0x34;
+        report[35] = 0x21;
+        report[36] = 0x43;
+
+        Assert.True(DualSenseHidReport.TryParse(report, 0.12f, out var state, out var motion));
+        Assert.True(state.GamepadConnected);
+        Assert.Equal(42, state.LeftTrigger);
+        Assert.Equal(84, state.RightTrigger);
+        Assert.Equal(
+            PadButtonMasks.Cross | PadButtonMasks.Right | PadButtonMasks.L1 |
+            PadButtonMasks.Options | PadButtonMasks.TouchPad,
+            state.Buttons);
+        Assert.Equal(1f, motion.AccelerationX);
+        Assert.True(motion.Touch0Active);
+        Assert.Equal(0x134, motion.Touch0X);
+        Assert.Equal(0x432, motion.Touch0Y);
+        Assert.Equal(7, motion.Touch0Id);
+    }
+
+    [Fact]
+    public void DualSenseUsbOutput_EncodesLightBarHapticsAndAdaptiveTriggers()
+    {
+        var left = DualSenseTriggerEffect.Resistance(2, 5);
+        var report = DualSenseHidReport.CreateUsbOutput(
+            200,
+            75,
+            10,
+            20,
+            30,
+            left,
+            DualSenseTriggerEffect.Off);
+
+        Assert.Equal(0x02, report[0]);
+        Assert.Equal(75, report[3]);
+        Assert.Equal(200, report[4]);
+        Assert.Equal(0, report[11]);
+        Assert.Equal(0x01, report[22]);
+        Assert.Equal(10, report[44]);
+        Assert.Equal(20, report[45]);
+        Assert.Equal(30, report[46]);
+    }
+
+    [Fact]
+    public void PadSetLightBar_QueuesGuestColor()
+    {
+        var memory = CreateMemory();
+        Assert.True(memory.TryWrite(DataAddress, [10, 20, 30]));
+        var context = new CpuContext(memory, Generation.Gen5);
+        context[CpuRegister.Rdi] = 1;
+        context[CpuRegister.Rsi] = DataAddress;
+
+        Assert.Equal(0, PadExports.PadSetLightBar(context));
+        Assert.Equal(((byte)10, (byte)20, (byte)30, true), HostPadOutputCache.ReadLightBar());
+    }
+
+    [Theory]
+    [InlineData(PadButtonMasks.Cross, 128, 128, PadKeyboardCompatibility.HidSpace)]
+    [InlineData(PadButtonMasks.Circle, 128, 128, PadKeyboardCompatibility.HidEscape)]
+    [InlineData(PadButtonMasks.Options, 128, 128, PadKeyboardCompatibility.HidEnter)]
+    [InlineData(PadButtonMasks.Left, 128, 128, PadKeyboardCompatibility.HidLeft)]
+    [InlineData(PadButtonMasks.Right, 128, 128, PadKeyboardCompatibility.HidRight)]
+    [InlineData(0, 0, 128, PadKeyboardCompatibility.HidLeft)]
+    [InlineData(0, 255, 128, PadKeyboardCompatibility.HidRight)]
+    [InlineData(0, 128, 0, PadKeyboardCompatibility.HidUp)]
+    [InlineData(0, 128, 255, PadKeyboardCompatibility.HidDown)]
+    public void GamepadKeyboardCompatibility_MapsButtonsAndLeftStick(
+        uint buttons,
+        byte leftStickX,
+        byte leftStickY,
+        ushort expected)
+    {
+        var state = HostPadState.Neutral with
+        {
+            Buttons = buttons,
+            LeftStickX = leftStickX,
+            LeftStickY = leftStickY,
+            GamepadConnected = true,
+        };
+
+        Assert.Equal(expected, PadKeyboardCompatibility.ReadKeycode(state));
     }
 
     private static VirtualMemory CreateMemory()

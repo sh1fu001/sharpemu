@@ -16,6 +16,7 @@ internal sealed class SilkHostInput : IDisposable
     private readonly int? _preferredGamepadIndex;
     private readonly float _deadzone;
     private readonly bool _gamepadEnabled;
+    private readonly WindowsDualSenseHid? _dualSense;
 
     private IGamepad? _activeGamepad;
     private string? _activeGamepadName;
@@ -33,6 +34,7 @@ internal sealed class SilkHostInput : IDisposable
             Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_GAMEPAD"),
             "1",
             StringComparison.Ordinal);
+        _dualSense = _gamepadEnabled ? WindowsDualSenseHid.TryCreate(_deadzone) : null;
         _context.ConnectionChanged += OnConnectionChanged;
     }
 
@@ -65,10 +67,25 @@ internal sealed class SilkHostInput : IDisposable
             return;
         }
 
-        var state = PadStateMapper.Create(gamepad, _context.Keyboards, _deadzone);
+        var state = _dualSense is not null && _dualSense.TryReadState(out var nativeState)
+            ? nativeState with
+            {
+                Buttons = nativeState.Buttons | PadStateMapper.ReadKeyboardButtons(_context.Keyboards),
+            }
+            : PadStateMapper.Create(gamepad, _context.Keyboards, _deadzone);
         HostPadStateCache.Publish(state);
 
         var vibration = HostPadOutputCache.ReadVibration();
+        var lightBar = HostPadOutputCache.ReadLightBar();
+        var adaptiveTriggers = HostPadOutputCache.ReadAdaptiveTriggers();
+        _dualSense?.ApplyOutput(
+            vibration.LargeMotor,
+            vibration.SmallMotor,
+            lightBar.IsSet ? lightBar.Red : (byte)0,
+            lightBar.IsSet ? lightBar.Green : (byte)80,
+            lightBar.IsSet ? lightBar.Blue : (byte)255,
+            adaptiveTriggers.Left,
+            adaptiveTriggers.Right);
         ApplyVibration(gamepad, vibration.LargeMotor, vibration.SmallMotor);
     }
 
@@ -80,6 +97,15 @@ internal sealed class SilkHostInput : IDisposable
         }
 
         _disposed = true;
+        _dualSense?.ApplyOutput(
+            0,
+            0,
+            0,
+            0,
+            0,
+            DualSenseTriggerEffect.Off,
+            DualSenseTriggerEffect.Off);
+        _dualSense?.Dispose();
         ApplyVibration(_activeGamepad, 0, 0);
         HostPadStateCache.Reset();
         _context.ConnectionChanged -= OnConnectionChanged;
