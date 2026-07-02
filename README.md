@@ -78,6 +78,74 @@ it as a gamepad. Buttons, both sticks and both analog triggers are forwarded to
   (default: `0.12`).
 - Set `SHARPEMU_LOG_PAD=1` to log input transitions.
 
+## Running the Test Game
+
+The development test title is the open-source homebrew game LBreakoutHD. Its
+game files are not included in this repository.
+
+1. Restore and build SharpEmu from the repository root:
+
+   ```powershell
+   dotnet restore SharpEmu.slnx --locked-mode
+   dotnet build SharpEmu.slnx --configuration Release --no-restore
+   ```
+
+2. Create the test-game directory:
+
+   ```powershell
+   New-Item -ItemType Directory -Force `
+     ".\artifacts\test-games\lbreakouthd"
+   ```
+
+3. Extract a legally obtained LBreakoutHD homebrew build into that directory.
+   Keep its asset directories next to the executable. The expected layout is:
+
+   ```text
+   artifacts/
+     test-games/
+       lbreakouthd/
+         lbreakouthd.elf
+         share/
+         var/
+   ```
+
+4. Optionally connect a DualSense over USB. Enable controller diagnostics when
+   testing input:
+
+   ```powershell
+   $env:SHARPEMU_LOG_PAD = "1"
+   $env:SHARPEMU_LOG_KEYBOARD = "1"
+   ```
+
+5. Start the game from the repository root:
+
+   ```powershell
+   & ".\artifacts\bin\Release\net10.0\win-x64\SharpEmu.exe" `
+     --log-level=info `
+     ".\artifacts\test-games\lbreakouthd\lbreakouthd.elf"
+   ```
+
+6. Wait for the `SharpEmu - VideoOut` window and keep it focused. Use the
+   D-pad or left stick to move, Cross to confirm/fire, Circle to go back and
+   Options for Enter. The keyboard fallback uses the arrow keys, Space,
+   Escape and Enter.
+
+Successful startup includes these messages:
+
+```text
+Native DualSense input active
+Vulkan VideoOut presented first frame
+```
+
+If the controller is intentionally handled only through the native pad API,
+disable the homebrew keyboard-compatibility mapping before launch:
+
+```powershell
+$env:SHARPEMU_DISABLE_GAMEPAD_KEYBOARD_COMPAT = "1"
+```
+
+Unset that variable, or set it to `0`, for LBreakoutHD.
+
 ## Titles Mentioned in Testing
 
 - **Demon's Souls Remake**
