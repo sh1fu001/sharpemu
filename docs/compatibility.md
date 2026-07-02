@@ -44,6 +44,7 @@ documented.
 | PPSA20591 | Poppy Playtime Chapter 1 | Unknown | Not Tested | No reproducible milestone documented | Unknown; fresh diagnostics required | Unknown | [`PPSA20591.md`](game-notes/PPSA20591.md) |
 | PPSA10112 | SILENT HILL: The Short Message | Unknown | Not Tested | No reproducible milestone documented | Unknown; fresh diagnostics required | Unknown | [`PPSA10112.md`](game-notes/PPSA10112.md) |
 | PPSA02929 | Dreaming Sarah | Unknown | Intro | Splash texture rendered in README capture | Unknown; fresh diagnostics required | Unknown | [`PPSA02929.md`](game-notes/PPSA02929.md) |
+| PPSA09804 | GRIS | 01.001.000 | Booting | Unity platform initialization; 2,736 HLE imports | Unity/IL2CPP API lookup returns no guest-callable targets | `il2cpp_api_lookup_symbol`, `il2cpp_api_register_symbols`, Unity setup callbacks | [`PPSA09804.md`](game-notes/PPSA09804.md) |
 
 The two `Not Tested` rows mean that no current structured evidence is available
 for assigning a boot milestone. They preserve the historical README references
