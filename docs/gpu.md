@@ -14,7 +14,7 @@ tracks the roadmap and what exists today.
 | Phase | Goal | State |
 | ----- | ---- | ----- |
 | 1. GPU logging | Log AGC submits, dump command buffers, dump shader metadata, identify vertex/pixel/compute | In progress (see below) |
-| 2. Shader translator | AGC/Gen5 -> IR -> SPIR-V, per-instruction unit tests, on-disk shader cache | Not started |
+| 2. Shader translator | AGC/Gen5 -> IR -> SPIR-V, per-instruction unit tests, on-disk shader cache | Foundation in place (see below) |
 | 3. Vulkan backend | Descriptor sets, pipeline layout, textures, render targets, synchronization, swapchain / video out | Partial (fixed presenter path only) |
 | 4. Visual debug | Wireframe mode, frame dump, RenderDoc capture, expected-vs-actual image comparison | Not started |
 
@@ -33,6 +33,24 @@ tracks the roadmap and what exists today.
 - The fullscreen barycentric shader used by Demon's Souls' video loop is recognized by
   [Gen5ShaderTranslator](../src/SharpEmu.Libs/Agc/Gen5ShaderTranslator.cs) and presented through the Vulkan
   presenter — the single translated case that exists so far.
+
+## Phase 2 — shader translator (foundation)
+
+The translator front end and supporting infrastructure are in place; per-instruction SPIR-V lowering is the
+remaining step. All of the following is unit-tested against real shader bytecode.
+
+- **GCN -> IR decoder** ([GcnDecoder](../src/SharpEmu.Libs/Agc/Shader/GcnDecoder.cs)): classifies each word by
+  encoding (SOP*/VOP*/SMEM/VOP3/EXP/...), resolves 32- vs 64-bit length including trailing literals, extracts
+  the opcode, and walks a program to its `s_endpgm`.
+- **SPIR-V assembler** ([Spirv](../src/SharpEmu.Libs/Agc/Shader/Spirv.cs)): builds byte-correct SPIR-V (header,
+  word-count packing, string literals) and emits a structurally valid minimal module per stage.
+- **On-disk shader cache** ([ShaderTranslationCache](../src/SharpEmu.Libs/Agc/Shader/ShaderTranslationCache.cs)):
+  keyed by stage + hash with a magic/version header, so a translator change invalidates stale blobs.
+- **Pipeline** ([Gen5ShaderCompiler](../src/SharpEmu.Libs/Agc/Shader/Gen5ShaderCompiler.cs)):
+  decode -> IR -> cache lookup -> SPIR-V -> cache store.
+
+**Next**: replace the minimal-module emit with real GCN-instruction lowering (IR -> SPIR-V) so a translated
+shader reproduces the guest program, driven by the shaders Phase 1 already identifies.
 
 ## Environment variables
 
