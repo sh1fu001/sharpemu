@@ -2538,7 +2538,7 @@
       "exports": [
         {
           "name": "scePadClose",
-          "nid": "__hle_pad_close",
+          "nid": "6ncge5+l5Qs",
           "target": "Gen4, Gen5"
         },
         {
@@ -2568,7 +2568,7 @@
         },
         {
           "name": "scePadSetLightBar",
-          "nid": "__hle_pad_light_bar",
+          "nid": "RR4novUEENY",
           "target": "Gen4, Gen5"
         },
         {
@@ -2578,7 +2578,7 @@
         },
         {
           "name": "scePadSetVibration",
-          "nid": "__hle_pad_vibration",
+          "nid": "yFVnOdGxvZY",
           "target": "Gen4, Gen5"
         },
         {

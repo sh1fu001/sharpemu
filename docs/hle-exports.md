@@ -667,15 +667,15 @@ SharpEmu --export-report
 
 | Export | NID | Target |
 | --- | --- | --- |
-| scePadClose | `__hle_pad_close` | Gen4, Gen5 |
+| scePadClose | `6ncge5+l5Qs` | Gen4, Gen5 |
 | scePadGetControllerInformation | `gjP9-KQzoUk` | Gen4, Gen5 |
 | scePadInit | `hv1luiJrqQM` | Gen4, Gen5 |
 | scePadOpen | `xk0AcarP3V4` | Gen4, Gen5 |
 | scePadRead | `q1cHNfGycLI` | Gen4, Gen5 |
 | scePadReadState | `YndgXqQVV7c` | Gen4, Gen5 |
-| scePadSetLightBar | `__hle_pad_light_bar` | Gen4, Gen5 |
+| scePadSetLightBar | `RR4novUEENY` | Gen4, Gen5 |
 | scePadSetMotionSensorState | `clVvL4ZDntw` | Gen4, Gen5 |
-| scePadSetVibration | `__hle_pad_vibration` | Gen4, Gen5 |
+| scePadSetVibration | `yFVnOdGxvZY` | Gen4, Gen5 |
 | scePadSetVibrationMode | `__hle_pad_vibration_mode` | Gen4, Gen5 |
 
 ## libScePlayGo (15)
