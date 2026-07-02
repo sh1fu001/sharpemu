@@ -14,8 +14,6 @@ namespace SharpEmu.Libs.Kernel;
 public static class KernelPthreadCompatExports
 {
     private static readonly SharpEmuLogger Log = SharpEmuLog.For("Kernel");
-
-    private const int MutexTypeDefault = 0;
     private const int MutexTypeErrorCheck = 1;
     private const int MutexTypeRecursive = 2;
     private const int MutexTypeNormal = 3;
@@ -48,7 +46,7 @@ public static class KernelPthreadCompatExports
         public SemaphoreSlim Semaphore { get; } = new(1, 1);
         public ulong OwnerThreadId { get; set; }
         public int RecursionCount { get; set; }
-        public int Type { get; set; } = MutexTypeDefault;
+        public int Type { get; set; } = MutexTypeErrorCheck;
         public int Protocol { get; set; }
     }
 
@@ -545,7 +543,7 @@ public static class KernelPthreadCompatExports
                     return (int)OrbisGen2Result.ORBIS_GEN2_OK;
                 }
 
-                if (state.Type is MutexTypeDefault or MutexTypeNormal or MutexTypeAdaptiveNp)
+                if (state.Type is MutexTypeNormal or MutexTypeAdaptiveNp)
                 {
                     if (tryOnly)
                     {
@@ -680,7 +678,7 @@ public static class KernelPthreadCompatExports
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
 
-        var initialState = new PthreadMutexAttrState(MutexTypeDefault, 0);
+        var initialState = new PthreadMutexAttrState(MutexTypeErrorCheck, 0);
         if (!WriteMutexAttrObject(ctx, handle, initialState))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
@@ -739,7 +737,7 @@ public static class KernelPthreadCompatExports
         {
             if (!_mutexAttrStates.TryGetValue(resolvedAddress, out var state))
             {
-                state = new PthreadMutexAttrState(MutexTypeDefault, 0);
+                state = new PthreadMutexAttrState(MutexTypeErrorCheck, 0);
             }
 
             updatedState = state with { Type = NormalizeMutexType(type) };
@@ -768,7 +766,7 @@ public static class KernelPthreadCompatExports
         {
             if (!_mutexAttrStates.TryGetValue(resolvedAddress, out var state))
             {
-                state = new PthreadMutexAttrState(MutexTypeDefault, 0);
+                state = new PthreadMutexAttrState(MutexTypeErrorCheck, 0);
             }
 
             updatedState = state with { Protocol = protocol };
@@ -851,7 +849,7 @@ public static class KernelPthreadCompatExports
             return false;
         }
 
-        return CreateImplicitMutexState(ctx, mutexAddress, MutexTypeDefault, out resolvedAddress, out state);
+        return CreateImplicitMutexState(ctx, mutexAddress, MutexTypeErrorCheck, out resolvedAddress, out state);
     }
 
     private static ulong ResolveMutexAttrHandle(CpuContext ctx, ulong attrAddress)
@@ -895,7 +893,7 @@ public static class KernelPthreadCompatExports
         {
             return _mutexAttrStates.TryGetValue(resolvedAddress, out var state)
                 ? state
-                : new PthreadMutexAttrState(MutexTypeDefault, 0);
+                : new PthreadMutexAttrState(MutexTypeErrorCheck, 0);
         }
     }
 
@@ -1297,12 +1295,12 @@ public static class KernelPthreadCompatExports
     {
         return type switch
         {
-            0 => MutexTypeDefault,
+            0 => MutexTypeErrorCheck,
             1 => MutexTypeErrorCheck,
             2 => MutexTypeRecursive,
             3 => MutexTypeNormal,
             4 => MutexTypeAdaptiveNp,
-            _ => MutexTypeDefault,
+            _ => MutexTypeErrorCheck,
         };
     }
 

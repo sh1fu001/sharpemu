@@ -477,6 +477,8 @@ public sealed partial class DirectExecutionBackend
 		catch (Exception ex)
 		{
 			LastError = $"HLE dispatch error for {importStubEntry.Nid}: {ex.GetType().Name}: {ex.Message}";
+			Console.Error.WriteLine($"[LOADER][ERROR] {LastError}");
+			Console.Error.WriteLine($"[LOADER][ERROR] {ex.StackTrace}");
 			cpuContext[CpuRegister.Rax] = 18446744071562199298uL;
 			return 18446744071562199298uL;
 		}
@@ -528,12 +530,8 @@ public sealed partial class DirectExecutionBackend
 				$"ret=0x{returnRip:X16}");
 		}
 
-		var previousImportCallFrame = GuestThreadExecution.EnterImportCallFrame(
-			returnRip,
-			(ulong)argPackPtr + 104uL,
-			ActiveGuestReturnSlotAddress);
 		int returnValue;
-		try
+		if (IsNoBlockLeafImport(importStubEntry.Nid))
 		{
 			cpuContext.ClearRaxWriteFlag();
 			returnValue = export.Function(cpuContext);
@@ -542,9 +540,25 @@ public sealed partial class DirectExecutionBackend
 				cpuContext[CpuRegister.Rax] = unchecked((ulong)returnValue);
 			}
 		}
-		finally
+		else
 		{
-			GuestThreadExecution.RestoreImportCallFrame(previousImportCallFrame);
+			var previousImportCallFrame = GuestThreadExecution.EnterImportCallFrame(
+				returnRip,
+				(ulong)argPackPtr + 104uL,
+				ActiveGuestReturnSlotAddress);
+			try
+			{
+				cpuContext.ClearRaxWriteFlag();
+				returnValue = export.Function(cpuContext);
+				if (!cpuContext.WasRaxWritten)
+				{
+					cpuContext[CpuRegister.Rax] = unchecked((ulong)returnValue);
+				}
+			}
+			finally
+			{
+				GuestThreadExecution.RestoreImportCallFrame(previousImportCallFrame);
+			}
 		}
 
 		if (returnValue != (int)OrbisGen2Result.ORBIS_GEN2_OK)
@@ -589,6 +603,28 @@ public sealed partial class DirectExecutionBackend
 		return true;
 	}
 
+	private static bool IsNoBlockLeafImport(string nid) =>
+		nid is
+			"8aI7R7WaOlc" or // sceAmprCommandBufferConstructor
+			"a8uLzYY--tM" or // sceAmprAprCommandBufferConstructor
+			"Qs1xtplKo0U" or // sceAmprAprCommandBufferDestructor
+			"GuchCTefuZw" or // sceAmprCommandBufferDestructor
+			"N-FSPA4S3nI" or // sceAmprCommandBufferSetBuffer
+			"baQO9ez2gL4" or // sceAmprCommandBufferReset
+			"ULvXMDz56po" or // sceAmprCommandBufferClearBuffer
+			"mQ16-QdKv7k" or // sceAmprAprCommandBufferReadFile
+			"vWU-odnS+fU" or // sceAmprMeasureCommandSizeReadFile
+			"sSAUCCU1dv4" or // sceAmprMeasureCommandSizeWriteKernelEventQueue_04_00
+			"C+IEj+BsAFM" or // sceAmprMeasureCommandSizeWriteAddressOnCompletion
+			"tZDDEo2tE5k" or // sceAmprCommandBufferGetSize
+			"GnxKOHEawhk" or // sceAmprCommandBufferGetCurrentOffset
+			"H896Pt-yB4I" or // sceAmprCommandBufferWriteKernelEventQueue_04_00
+			"sJXyWHjP-F8" or // sceAmprCommandBufferWriteAddressOnCompletion
+			"ASoW5WE-UPo" or // sceKernelAprSubmitCommandBufferAndGetResult
+			"rqwFKI4PAiM" or // sceKernelAprWaitCommandBuffer
+			"eE4Szl8sil8" or // sceKernelAprSubmitCommandBuffer
+			"qvMUCyyaCSI";   // sceKernelAprSubmitCommandBufferAndGetId
+
 	private bool ShouldLogImportResult(string nid, OrbisGen2Result result)
 	{
 		var expectedFileProbeMiss =
@@ -597,7 +633,10 @@ public sealed partial class DirectExecutionBackend
 		var expectedTimedWaitTimeout =
 			string.Equals(nid, "27bAgiJmOh0", StringComparison.Ordinal) &&
 			unchecked((int)result) == 60;
-		if (!expectedFileProbeMiss && !expectedTimedWaitTimeout)
+		var expectedMutexTrylockBusy =
+			string.Equals(nid, "K-jXhbt2gn4", StringComparison.Ordinal) &&
+			result == OrbisGen2Result.ORBIS_GEN2_ERROR_BUSY;
+		if (!expectedFileProbeMiss && !expectedTimedWaitTimeout && !expectedMutexTrylockBusy)
 		{
 			return true;
 		}
@@ -679,7 +718,11 @@ public sealed partial class DirectExecutionBackend
 			"Vo5V8KAwCmk" or // sceSystemServiceHideSplashScreen
 			"TywrFKCoLGY" or // sceSaveDataInitialize3
 			"dyIhnXq-0SM" or // sceSaveDataDirNameSearch
+			"ERKzksauAJA" or // sceSaveDataDialogGetStatus
+			"KK3Bdg1RWK0" or // sceSaveDataDialogUpdateStatus
+			"en7gNVnh878" or // sceSaveDataDialogIsReadyToDisplay
 			"jO8DM8oyego" or // sceNpEntitlementAccessInitialize
+			"TFyU+KFBv54" or // sceNpEntitlementAccessGetAddcontEntitlementInfoList
 			"27bAgiJmOh0" or // pthread_cond_timedwait
 			"iQw3iQPhvUQ" or // sceNetCtlCheckCallback
 			"Q2V+iqvjgC0" or // vsnprintf
