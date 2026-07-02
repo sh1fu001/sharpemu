@@ -3,6 +3,7 @@
 
 using SharpEmu.HLE;
 using SharpEmu.Libs.Kernel;
+using SharpEmu.Libs.Pad;
 using SharpEmu.Logging;
 using System.Buffers.Binary;
 using System.Globalization;
@@ -90,11 +91,20 @@ public static class KeyboardExports
     private static ushort ReadHostKeycode()
     {
         var configured = ReadConfiguredKeycode();
-        if (configured != 0 ||
-            !OperatingSystem.IsWindows() ||
-            !IsEmulatorForeground())
+        if (configured != 0)
         {
             return configured;
+        }
+
+        var gamepadKeycode = PadKeyboardCompatibility.ReadKeycode(HostPadStateCache.Read());
+        if (gamepadKeycode != 0)
+        {
+            return gamepadKeycode;
+        }
+
+        if (!OperatingSystem.IsWindows() || !IsEmulatorForeground())
+        {
+            return 0;
         }
 
         if (IsKeyDown(VkReturn)) return 0x28;

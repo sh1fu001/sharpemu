@@ -10,6 +10,7 @@ using Silk.NET.Windowing;
 using VkBuffer = Silk.NET.Vulkan.Buffer;
 using VkSemaphore = Silk.NET.Vulkan.Semaphore;
 
+using SharpEmu.Libs.Pad;
 using SharpEmu.Logging;
 
 namespace SharpEmu.Libs.VideoOut;
@@ -305,6 +306,8 @@ internal static unsafe class VulkanVideoPresenter
         private bool _firstGuestDrawPresented;
         private bool _splashPresented;
         private bool _framebufferResized;
+        private bool _windowFocused = true;
+        private SilkHostInput? _hostInput;
 
         public Presenter(uint width, uint height)
         {
@@ -317,7 +320,9 @@ internal static unsafe class VulkanVideoPresenter
             options.UpdatesPerSecond = 60;
             _window = Window.Create(options);
             _window.Load += Initialize;
+            _window.Update += UpdateInput;
             _window.Render += Render;
+            _window.FocusChanged += OnFocusChanged;
             _window.FramebufferResize += OnFramebufferResize;
             _window.Closing += DisposeVulkan;
         }
@@ -347,12 +352,14 @@ internal static unsafe class VulkanVideoPresenter
 
         public void Dispose()
         {
+            DisposeInput();
             DisposeVulkan();
             _window.Dispose();
         }
 
         private void Initialize()
         {
+            _hostInput = SilkHostInput.TryCreate(_window);
             _vk = Vk.GetApi();
             CreateInstance();
             CreateSurface();
@@ -364,6 +371,16 @@ internal static unsafe class VulkanVideoPresenter
             _vulkanReady = true;
             Log.Info(
                 $"Vulkan VideoOut ready: {_extent.Width}x{_extent.Height}, format={_swapchainFormat}");
+        }
+
+        private void UpdateInput(double _) => _hostInput?.Poll(_windowFocused);
+
+        private void OnFocusChanged(bool focused) => _windowFocused = focused;
+
+        private void DisposeInput()
+        {
+            _hostInput?.Dispose();
+            _hostInput = null;
         }
 
         private void CreateInstance()

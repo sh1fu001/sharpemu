@@ -6,8 +6,6 @@ using SharpEmu.Libs.Kernel;
 using SharpEmu.Logging;
 using System.Buffers.Binary;
 using System.Diagnostics;
-using System.Globalization;
-using System.Runtime.InteropServices;
 
 namespace SharpEmu.Libs.Pad;
 
@@ -24,31 +22,14 @@ public static class PadExports
     private const int PrimaryPadHandle = 1;
     private const int ControllerInformationSize = 0x1C;
     private const int PadDataSize = 0x78;
-    private const uint PadButtonOptions = 0x00000008;
-    private const uint PadButtonUp = 0x00000010;
-    private const uint PadButtonRight = 0x00000020;
-    private const uint PadButtonDown = 0x00000040;
-    private const uint PadButtonLeft = 0x00000080;
-    private const uint PadButtonTriangle = 0x00001000;
-    private const uint PadButtonCircle = 0x00002000;
-    private const uint PadButtonCross = 0x00004000;
-    private const uint PadButtonSquare = 0x00008000;
 
-    private const int VkBack = 0x08;
-    private const int VkReturn = 0x0D;
-    private const int VkEscape = 0x1B;
-    private const int VkSpace = 0x20;
-    private const int VkLeft = 0x25;
-    private const int VkUp = 0x26;
-    private const int VkRight = 0x27;
-    private const int VkDown = 0x28;
-    private const int VkA = 0x41;
-    private const int VkD = 0x44;
-    private const int VkQ = 0x51;
-    private const int VkS = 0x53;
-    private const int VkW = 0x57;
-    private const int VkX = 0x58;
-    private const int VkZ = 0x5A;
+    private static readonly bool LogPadTransitions =
+        string.Equals(
+            Environment.GetEnvironmentVariable("SHARPEMU_LOG_PAD"),
+            "1",
+            StringComparison.Ordinal);
+    private static readonly string? PadStateFile =
+        Environment.GetEnvironmentVariable("SHARPEMU_PAD_STATE_FILE");
 
     private static bool _initialized;
     private static uint _lastLoggedButtons = uint.MaxValue;
@@ -150,28 +131,78 @@ public static class PadExports
         ValidateOpenHandle(ctx);
 
     [SysAbiExport(
-        Nid = "__hle_pad_vibration",
+        Nid = "yFVnOdGxvZY",
         ExportName = "scePadSetVibration",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libScePad")]
-    public static int PadSetVibration(CpuContext ctx) =>
-        ValidateOpenHandle(ctx);
+    public static int PadSetVibration(CpuContext ctx)
+    {
+        var handle = unchecked((int)ctx[CpuRegister.Rdi]);
+        var parameterAddress = ctx[CpuRegister.Rsi];
+        if (handle != PrimaryPadHandle)
+        {
+            return SetReturn(ctx, OrbisPadErrorInvalidHandle);
+        }
+
+        if (parameterAddress == 0)
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+        }
+
+        Span<byte> vibration = stackalloc byte[2];
+        if (!KernelMemoryCompatExports.TryReadCompat(ctx, parameterAddress, vibration))
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+
+        HostPadOutputCache.SetVibration(vibration[0], vibration[1]);
+        return SetReturn(ctx, 0);
+    }
 
     [SysAbiExport(
-        Nid = "__hle_pad_light_bar",
+        Nid = "RR4novUEENY",
         ExportName = "scePadSetLightBar",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libScePad")]
-    public static int PadSetLightBar(CpuContext ctx) =>
-        ValidateOpenHandle(ctx);
+    public static int PadSetLightBar(CpuContext ctx)
+    {
+        var handle = unchecked((int)ctx[CpuRegister.Rdi]);
+        var parameterAddress = ctx[CpuRegister.Rsi];
+        if (handle != PrimaryPadHandle)
+        {
+            return SetReturn(ctx, OrbisPadErrorInvalidHandle);
+        }
+
+        if (parameterAddress == 0)
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
+        }
+
+        Span<byte> color = stackalloc byte[3];
+        if (!KernelMemoryCompatExports.TryReadCompat(ctx, parameterAddress, color))
+        {
+            return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+        }
+
+        HostPadOutputCache.SetLightBar(color[0], color[1], color[2]);
+        return SetReturn(ctx, 0);
+    }
 
     [SysAbiExport(
-        Nid = "__hle_pad_close",
+        Nid = "6ncge5+l5Qs",
         ExportName = "scePadClose",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libScePad")]
-    public static int PadClose(CpuContext ctx) =>
-        ValidateOpenHandle(ctx);
+    public static int PadClose(CpuContext ctx)
+    {
+        var result = ValidateOpenHandle(ctx);
+        if (result == 0)
+        {
+            HostPadOutputCache.SetVibration(0, 0);
+        }
+
+        return result;
+    }
 
     [SysAbiExport(
         Nid = "YndgXqQVV7c",
@@ -192,7 +223,7 @@ public static class PadExports
             return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
         }
 
-        return WriteNeutralPadData(ctx, dataAddress)
+        return WritePadData(ctx, dataAddress)
             ? SetReturn(ctx, 0)
             : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
     }
@@ -217,22 +248,53 @@ public static class PadExports
             return SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
         }
 
-        return WriteNeutralPadData(ctx, dataAddress)
+        return WritePadData(ctx, dataAddress)
             ? SetReturn(ctx, 1)
             : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
     }
 
-    private static bool WriteNeutralPadData(CpuContext ctx, ulong dataAddress)
+    private static bool WritePadData(CpuContext ctx, ulong dataAddress)
     {
+        var hostState = HostPadStateCache.Read();
+        var buttons = hostState.Buttons | ConfiguredPadButtons.Read();
+        LogButtonTransition(buttons, hostState.GamepadConnected);
+
         Span<byte> data = stackalloc byte[PadDataSize];
         data.Clear();
-        BinaryPrimitives.WriteUInt32LittleEndian(data, ReadHostButtons());
-        data[0x04] = 128;
-        data[0x05] = 128;
-        data[0x06] = 128;
-        data[0x07] = 128;
+        BinaryPrimitives.WriteUInt32LittleEndian(data, buttons);
+        data[0x04] = hostState.LeftStickX;
+        data[0x05] = hostState.LeftStickY;
+        data[0x06] = hostState.RightStickX;
+        data[0x07] = hostState.RightStickY;
+        data[0x08] = hostState.LeftTrigger;
+        data[0x09] = hostState.RightTrigger;
         BinaryPrimitives.WriteSingleLittleEndian(data[0x18..], 1.0f);
-        data[0x4C] = 1;
+        var motion = HostPadMotionStateCache.Read();
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x0C..], motion.OrientationX);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x10..], motion.OrientationY);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x14..], motion.OrientationZ);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x18..], motion.OrientationW);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x1C..], motion.AccelerationX);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x20..], motion.AccelerationY);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x24..], motion.AccelerationZ);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x28..], motion.AngularVelocityX);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x2C..], motion.AngularVelocityY);
+        BinaryPrimitives.WriteSingleLittleEndian(data[0x30..], motion.AngularVelocityZ);
+        var touchCount = 0;
+        if (motion.Touch0Active)
+        {
+            WriteTouch(data[(0x38 + (touchCount * 8))..], motion.Touch0X, motion.Touch0Y, motion.Touch0Id);
+            touchCount++;
+        }
+
+        if (motion.Touch1Active)
+        {
+            WriteTouch(data[(0x38 + (touchCount * 8))..], motion.Touch1X, motion.Touch1Y, motion.Touch1Id);
+            touchCount++;
+        }
+
+        data[0x34] = (byte)touchCount;
+        data[0x48] = hostState.GamepadConnected ? (byte)1 : (byte)0;
         var timestampTicks = Stopwatch.GetTimestamp();
         var timestampMicroseconds =
             ((ulong)(timestampTicks / Stopwatch.Frequency) * 1_000_000UL) +
@@ -245,100 +307,34 @@ public static class PadExports
         return KernelMemoryCompatExports.TryWriteCompat(ctx, dataAddress, data);
     }
 
+    private static void WriteTouch(
+        Span<byte> destination,
+        ushort x,
+        ushort y,
+        byte id)
+    {
+        BinaryPrimitives.WriteUInt16LittleEndian(destination, x);
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[2..], y);
+        destination[4] = id;
+    }
+
     private static int ValidateOpenHandle(CpuContext ctx) =>
         unchecked((int)ctx[CpuRegister.Rdi]) == PrimaryPadHandle
             ? SetReturn(ctx, 0)
             : SetReturn(ctx, OrbisPadErrorInvalidHandle);
 
-    private static uint ReadHostButtons()
+    private static void LogButtonTransition(uint buttons, bool gamepadConnected)
     {
-        var buttons = ReadConfiguredButtons();
-        if (!OperatingSystem.IsWindows() || !IsEmulatorForeground())
-        {
-            LogButtonTransition(buttons);
-            return buttons;
-        }
-
-        if (IsKeyDown(VkUp) || IsKeyDown(VkW)) buttons |= PadButtonUp;
-        if (IsKeyDown(VkRight) || IsKeyDown(VkD)) buttons |= PadButtonRight;
-        if (IsKeyDown(VkDown) || IsKeyDown(VkS)) buttons |= PadButtonDown;
-        if (IsKeyDown(VkLeft) || IsKeyDown(VkA) || IsKeyDown(VkQ)) buttons |= PadButtonLeft;
-        if (IsKeyDown(VkReturn) || IsKeyDown(VkSpace) || IsKeyDown(VkZ)) buttons |= PadButtonCross;
-        if (IsKeyDown(VkEscape) || IsKeyDown(VkBack) || IsKeyDown(VkX)) buttons |= PadButtonCircle;
-        if (IsKeyDown(0x52)) buttons |= PadButtonTriangle;
-        if (IsKeyDown(0x46)) buttons |= PadButtonSquare;
-        if (IsKeyDown(0x50)) buttons |= PadButtonOptions;
-        LogButtonTransition(buttons);
-        return buttons;
-    }
-
-    private static void LogButtonTransition(uint buttons)
-    {
-        if (Environment.GetEnvironmentVariable("SHARPEMU_LOG_PAD") != "1" ||
-            buttons == _lastLoggedButtons)
+        if (!LogPadTransitions || buttons == _lastLoggedButtons)
         {
             return;
         }
 
         _lastLoggedButtons = buttons;
         Log.Info(
-            $"Host pad buttons=0x{buttons:X8}, state_file=" +
-            $"{Environment.GetEnvironmentVariable("SHARPEMU_PAD_STATE_FILE") ?? "<unset>"}");
+            $"Host pad buttons=0x{buttons:X8}, gamepad_connected={gamepadConnected}, state_file=" +
+            $"{PadStateFile ?? "<unset>"}");
     }
-
-    private static uint ReadConfiguredButtons()
-    {
-        var stateFile = Environment.GetEnvironmentVariable("SHARPEMU_PAD_STATE_FILE");
-        if (string.IsNullOrWhiteSpace(stateFile))
-        {
-            return 0;
-        }
-
-        try
-        {
-            var value = File.ReadAllText(stateFile).Trim();
-            if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            {
-                value = value[2..];
-            }
-
-            return uint.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var buttons)
-                ? buttons
-                : 0;
-        }
-        catch (IOException)
-        {
-            return 0;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return 0;
-        }
-    }
-
-    private static bool IsKeyDown(int virtualKey) =>
-        (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
-
-    private static bool IsEmulatorForeground()
-    {
-        var foregroundWindow = GetForegroundWindow();
-        if (foregroundWindow == 0)
-        {
-            return false;
-        }
-
-        _ = GetWindowThreadProcessId(foregroundWindow, out var processId);
-        return processId == Environment.ProcessId;
-    }
-
-    [DllImport("user32.dll")]
-    private static extern short GetAsyncKeyState(int virtualKey);
-
-    [DllImport("user32.dll")]
-    private static extern nint GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(nint windowHandle, out int processId);
 
     private static int SetReturn(CpuContext ctx, int result)
     {
