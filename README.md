@@ -64,6 +64,20 @@ simplify early-stage debugging and iteration.
    .\SharpEmu "eboot.bin" 2>&1 | Tee-Object -FilePath "log.txt"
    ```
 
+## Controller Input
+
+SharpEmu accepts standard gamepads through the VideoOut window, including a
+DualSense connected over USB or Bluetooth when the host input backend exposes
+it as a gamepad. Buttons, both sticks and both analog triggers are forwarded to
+`scePad`; keyboard controls remain available as a fallback.
+
+- Controller setup, mappings and troubleshooting:
+  [`docs/controller-input.md`](docs/controller-input.md)
+- Set `SHARPEMU_GAMEPAD_INDEX` to select a specific host controller.
+- Set `SHARPEMU_GAMEPAD_DEADZONE` to tune the radial stick deadzone
+  (default: `0.12`).
+- Set `SHARPEMU_LOG_PAD=1` to log input transitions.
+
 ## Titles Mentioned in Testing
 
 - **Demon's Souls Remake**
@@ -107,6 +121,7 @@ and per-game notes.
 - Kernel HLE status: [`docs/kernel-hle-status.md`](docs/kernel-hle-status.md)
 - Memory model notes: [`docs/memory.md`](docs/memory.md)
 - GPU pipeline notes: [`docs/gpu.md`](docs/gpu.md)
+- Controller input: [`docs/controller-input.md`](docs/controller-input.md)
 
 ## Diagnostics
 
