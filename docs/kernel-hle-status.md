@@ -1,10 +1,30 @@
 # Kernel HLE Status
 
-_223 `libKernel` exports. 85 triaged, 138 not yet triaged._ Areas are inferred from export names; severities are a curated triage seed. Regenerate with `SharpEmu --kernel-status`.
+This report groups registered `libKernel` exports by bring-up area and impact.
+Areas are inferred from export names, while severities are a curated triage
+seed rather than a compatibility guarantee.
 
-Severity: **BLOCKER** prevents boot; **CRITICAL** crash/deadlock; **VISIBLE** graphics/audio/input; **COSMETIC** minor; **UNKNOWN** not yet triaged.
+- Total `libKernel` exports: 223
+- Triaged exports: 85
+- Not yet triaged: 138
 
-## Summary by area
+Regenerate the report with:
+
+```powershell
+SharpEmu --kernel-status
+```
+
+## Severity Legend
+
+| Severity | Meaning |
+|---|---|
+| `BLOCKER` | Prevents boot or fully blocks execution. |
+| `CRITICAL` | Causes a crash, deadlock, or major incorrect behavior. |
+| `VISIBLE` | Affects graphics, audio, input, or other visible behavior. |
+| `COSMETIC` | Minor issue with little impact. |
+| `UNKNOWN` | Not yet triaged. |
+
+## Summary by Area
 
 | # | Area | Exports | BLOCKER | CRITICAL | VISIBLE | COSMETIC | UNKNOWN |
 | - | ---- | ------: | ------: | -------: | ------: | -------: | ------: |

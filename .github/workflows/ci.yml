@@ -1,0 +1,62 @@
+# Copyright (C) 2026 SharpEmu Emulator Project
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
+jobs:
+  reuse:
+    name: REUSE Compliance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Run REUSE lint
+        uses: fsfe/reuse-action@v6
+
+  build-test:
+    name: Build and Test
+    runs-on: windows-latest
+    env:
+      DOTNET_NOLOGO: true
+      NUGET_PACKAGES: ${{ github.workspace }}\.nuget\packages
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Validate documentation
+        shell: pwsh
+        run: ./scripts/validate-docs.ps1
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.301
+          cache: true
+          cache-dependency-path: |
+            Directory.Packages.props
+            src/**/packages.lock.json
+            tests/**/packages.lock.json
+
+      - name: Restore solution
+        run: dotnet restore SharpEmu.slnx --locked-mode
+
+      - name: Build solution
+        run: dotnet build SharpEmu.slnx --configuration Release --no-restore
+
+      - name: Test solution
+        run: dotnet test SharpEmu.slnx --configuration Release --no-build --no-restore

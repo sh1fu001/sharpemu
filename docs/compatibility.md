@@ -5,136 +5,99 @@ SPDX-License-Identifier: GPL-2.0-or-later
 
 # SharpEmu Compatibility Matrix
 
-SharpEmu is an **experimental** PlayStation 5 emulator in a very early alpha
-stage. **No commercial games are currently playable.** This document is a
-tracking and diagnostic tool, not a promise of support: it records what has
-been tested, how far each title gets during boot, which modules and imports
-are missing, and what the next technical actions are.
+SharpEmu is an experimental PlayStation 5 emulator. This compatibility matrix
+is used to track boot progress, blockers, missing exports, and technical notes
+for legally obtained test inputs.
 
-Because the project changes quickly, every entry is a snapshot tied to a
-specific emulator commit. Always cross-check a row against its per-game notes
-file before drawing conclusions.
-
-> This page tracks progress only. It does **not** describe how to obtain,
-> decrypt, or run any game content.
+Compatibility entries are evidence-based snapshots. A title mentioned in an
+issue or the README is not assumed to work unless a reproducible milestone is
+documented.
 
 ## Status Legend
 
-| Status       | Meaning |
-| ------------ | ------- |
+| Status | Meaning |
+|---|---|
 | `Not Tested` | The title has not been tested yet. |
-| `Loadable`   | The main executable is recognized and loaded. |
-| `Booting`    | Execution starts (native code begins running). |
-| `Intro`      | The game reaches an initial screen, splash, or video. |
-| `Menu`       | The game reaches an interactive menu. |
-| `In Game`    | Gameplay is reachable. |
-| `Playable`   | Playable with only minor issues. |
-| `Broken`     | Crash, hang, or otherwise unusable behavior. |
+| `Loadable` | The main executable is recognized and loaded. |
+| `Booting` | Execution starts but does not reach a visible interactive state. |
+| `Intro` | The title reaches an initial splash screen, intro, logo, or video. |
+| `Menu` | The title reaches an interactive menu. |
+| `In Game` | Gameplay is accessible but may have major issues. |
+| `Playable` | Gameplay is mostly usable with minor or moderate issues. |
+| `Broken` | The title crashes, hangs, or is unusable. |
 
-Statuses are ordered roughly by progress: a title normally moves
-`Not Tested` → `Loadable` → `Booting` → `Intro` → `Menu` → `In Game` →
-`Playable`. `Broken` is orthogonal and marks a regression or blocking failure
-at whatever milestone it occurred.
+## Blocker Severity
+
+| Severity | Meaning |
+|---|---|
+| `BLOCKER` | Prevents boot or fully blocks execution. |
+| `CRITICAL` | Causes a crash, deadlock, or major incorrect behavior. |
+| `VISIBLE` | Affects graphics, audio, input, or other visible behavior. |
+| `COSMETIC` | Minor issue with little impact. |
+| `UNKNOWN` | Behavior is not understood yet. |
 
 ## Compatibility Table
 
-The rows below are **placeholders** used to illustrate the format. They do not
-claim that any real game works.
+| Title ID | Game | Version | Status | Last Milestone | Main Blocker | Missing Modules / Exports | Notes File |
+|---|---|---|---|---|---|---|---|
+| PPSA01341 | Demon's Souls | Unknown | Intro | Video loop and first VideoOut frame reported in README | General shader translation to SPIR-V/Vulkan | Unknown | [`PPSA01341.md`](game-notes/PPSA01341.md) |
+| PPSA20591 | Poppy Playtime Chapter 1 | Unknown | Not Tested | No reproducible milestone documented | Unknown; fresh diagnostics required | Unknown | [`PPSA20591.md`](game-notes/PPSA20591.md) |
+| PPSA10112 | SILENT HILL: The Short Message | Unknown | Not Tested | No reproducible milestone documented | Unknown; fresh diagnostics required | Unknown | [`PPSA10112.md`](game-notes/PPSA10112.md) |
+| PPSA02929 | Dreaming Sarah | Unknown | Intro | Splash texture rendered in README capture | Unknown; fresh diagnostics required | Unknown | [`PPSA02929.md`](game-notes/PPSA02929.md) |
 
-| Title ID  | Game           | Version | Status     | Last Milestone | Main Blocker            | Missing Modules / Exports | Notes File                                          |
-| --------- | -------------- | ------- | ---------- | -------------- | ----------------------- | ------------------------- | --------------------------------------------------- |
-| PPSA00000 | Example Game   | Unknown | Not Tested | None           | Unknown                 | Unknown                   | [`PPSA00000.md`](game-notes/PPSA00000.md)           |
-| PPSA00001 | Example Game B | Unknown | Loadable   | SELF parsed    | Missing kernel imports  | `libkernel` (partial)     | _not created yet_                                   |
-| PPSA00002 | Example Game C | Unknown | Booting    | Entry point    | Unresolved import trap  | Unknown                   | _not created yet_                                   |
-| PPSA00003 | Example Game D | Unknown | Broken     | Boot           | Crash during init       | Unknown                   | _not created yet_                                   |
+The two `Not Tested` rows mean that no current structured evidence is available
+for assigning a boot milestone. They preserve the historical README references
+without promoting an unverified compatibility claim.
 
-To add a real entry, create its notes file first (see below), then link it in
-the last column. Keep the placeholder rows until real data replaces them, or
-remove them once the table has real entries.
+## Evidence Sources
 
-## Adding a New Tested Game
+Use the following sources when updating a row:
 
-1. Confirm you are using a **legally obtained** copy of the game (see below).
-2. Copy [`game-notes/TEMPLATE.md`](game-notes/TEMPLATE.md) to
-   `docs/game-notes/<TITLE_ID>.md` (uppercase Title ID, e.g. `PPSA01341.md`).
-3. Run the emulator and capture the logs, for example:
-   ```bash
-   ./SharpEmu --trace-imports=64 --log-level=debug "path/to/eboot.bin" 2>&1 | tee log.txt
-   ```
-   Import traces, milestone logs, and execution diagnostics are printed by the
-   CLI ([src/SharpEmu.CLI/Program.cs](../src/SharpEmu.CLI/Program.cs)) through
-   the `SharpEmu*` logging framework; frame/videoout dumps land in the `logs/`
-   directory when the relevant `SHARPEMU_*` environment variables are set.
-4. Fill in the notes file: basic info, boot progress, loaded modules, missing
-   imports, blockers, and the next technical actions.
-5. Add or update the matching row in the table above. Use the **exact** status
-   and severity values defined in this document.
-6. Keep the row and the notes file in sync whenever you re-test.
+- Structured diagnostics under `logs/<TITLE_ID>/<timestamp>/`
+- A per-game note tied to a specific emulator commit and test date
+- A reproducible screenshot or capture
+- An existing README statement, clearly identified as historical evidence
 
-## Diagnostics Sessions
+The structured diagnostics files have the following roles:
 
-Every run writes a structured diagnostics session to
-`logs/<TITLE_ID>/<timestamp>/`. These files are the primary source of truth when
-filling in a game-notes file:
+| File | Purpose |
+|---|---|
+| `boot.log` | Captures observed boot behavior. |
+| `imports_missing.json` | Lists unresolved guest imports and hit counts. |
+| `syscalls.json` | Lists raw guest syscalls observed during execution. |
+| `modules.json` | Records loaded modules and address ranges. |
+| `memory_map.json` | Records mapped guest regions and protections. |
+| `gpu_submits.json` | Records recent AGC command-buffer submissions. |
+| `shaders.json` | Records identified shader programs and fingerprints. |
+| `crash_context.json` | Records the final result, fault, trap, or crash context. |
 
-| File                    | Use it to fill in |
-| ----------------------- | ----------------- |
-| `boot.log`              | Observed behavior, log paths |
-| `imports_missing.json`  | Missing Imports / Exports (NIDs, library, hit counts) |
-| `syscalls.json`         | Kernel / HLE blockers (raw syscalls hit) |
-| `modules.json`          | Loaded Modules table |
-| `memory_map.json`       | Memory-related blockers (mapped regions and protections) |
-| `crash_context.json`    | Current Status, Main Blocker, crash RIP / fault address / NID |
-| `gpu_submits.json`      | Graphics / AGC blockers (recent GPU submits) |
-| `shaders.json`          | Graphics / AGC blockers (shaders bound: stage, address, hash) |
+## Adding or Updating a Title
 
-The session is written on a normal exit and on a guest trap/fault; it is skipped
-only if the host process itself is killed abruptly. Pass `--no-diagnostics` (or
-set `SHARPEMU_NO_DIAGNOSTICS=1`) to turn it off.
+1. Copy [`game-notes/TEMPLATE.md`](game-notes/TEMPLATE.md) to
+   `docs/game-notes/<TITLE_ID>.md`.
+2. Run the title using a legally obtained test input.
+3. Attach or reference the structured diagnostics produced by the run.
+4. Record only milestones supported by those diagnostics or captures.
+5. Update the compatibility row and its notes file together.
+6. Run `scripts/validate-docs.ps1`.
 
-## Interpreting Blockers
+Example diagnostic run:
 
-A **blocker** is whatever prevents a title from reaching the next milestone.
-When reading a row:
-
-- **Main Blocker** is the single most important reason the title is stuck at
-  its current status. It should be actionable (e.g. "unresolved `libSceGnmDriver`
-  import" rather than "does not work").
-- **Missing Modules / Exports** lists the system modules or specific
-  exports/NIDs that are not yet implemented and are needed to progress.
-- The per-game notes file breaks blockers down by area (kernel/HLE vs.
-  graphics/AGC) and assigns each one a **severity** (see next section) so the
-  most impactful work can be prioritized.
-
-Two titles at the same status can have very different blockers; always read the
-notes file for context before assuming shared causes.
-
-## Blocker Severity Levels
-
-Severity describes the *impact* of a blocker, independent of how far the game
-booted. Use these exact values:
-
-| Severity   | Meaning |
-| ---------- | ------- |
-| `BLOCKER`  | Prevents boot or completely halts execution. |
-| `CRITICAL` | Causes a crash, deadlock, or major incorrect behavior. |
-| `VISIBLE`  | Has a visible impact on display, audio, or input. |
-| `COSMETIC` | Minor impact only. |
-| `UNKNOWN`  | Behavior is not yet understood. |
+```powershell
+.\SharpEmu --trace-imports=64 --log-level=debug "path\to\eboot.bin" `
+  2>&1 | Tee-Object -FilePath "log.txt"
+```
 
 ## Naming Conventions
 
-- Per-game notes files: `docs/game-notes/<TITLE_ID>.md`.
-  - Example: `docs/game-notes/PPSA01341.md`.
-- Title IDs must be written in **UPPERCASE** (e.g. `PPSA01341`, not
-  `ppsa01341`).
-- Statuses must use exactly the values from the [Status Legend](#status-legend).
-- Severities must use exactly the values from the
-  [Blocker Severity Levels](#blocker-severity-levels).
+- Game note files must use: `docs/game-notes/<TITLE_ID>.md`
+- Example: `docs/game-notes/PPSA01341.md`
+- Title IDs must be uppercase.
+- Status values must exactly match the values listed in the status legend.
+- Severity values must exactly match the values listed in the blocker severity table.
 
 ## Legal Notice
 
-Only game dumps that were **legally obtained** from hardware you personally own
-may be used with SharpEmu. This project does **not** support or condone piracy,
-DRM circumvention, or the distribution of copyrighted system firmware or game
-data. Do not add entries based on illegally obtained content.
+Only legally obtained test inputs should be used. This project does not
+provide, request, or distribute copyrighted game content, console firmware,
+keys, or decrypted proprietary assets.

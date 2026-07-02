@@ -1,49 +1,73 @@
 # HLE Export Coverage
 
-_540 exports across 38 modules._ Generated from the `[SysAbiExport]` attributes the runtime registers; regenerate with `SharpEmu --export-report`.
+This document summarizes the current High-Level Emulation export coverage.
+It is generated from the `[SysAbiExport]` registrations used by the runtime.
+
+Registration means that SharpEmu can resolve an export by module and NID. It
+does not, by itself, prove that the export is fully implemented or accurate.
 
 ## Summary
 
-| Module | Exports | Gen4 | Gen5 |
-| --- | ---: | ---: | ---: |
-| libc | 88 | 88 | 88 |
-| LibcInternalExt | 1 | 1 | 1 |
-| libKernel | 223 | 223 | 223 |
-| libSceAgc | 51 | 0 | 51 |
-| libSceAgcDriver | 4 | 0 | 4 |
-| libSceAmpr | 15 | 0 | 15 |
-| libSceAppContent | 4 | 4 | 4 |
-| libSceAudioOut | 4 | 4 | 4 |
-| libSceAudioOut2 | 11 | 0 | 11 |
-| libSceCommonDialog | 2 | 2 | 2 |
-| libSceCoredump | 1 | 1 | 1 |
-| libSceFiber | 15 | 15 | 15 |
-| libSceGameUpdate | 1 | 1 | 1 |
-| libSceHttp | 4 | 4 | 4 |
-| libSceHttp2 | 2 | 2 | 2 |
-| libSceJson | 5 | 5 | 5 |
-| libSceKeyboard | 4 | 4 | 4 |
-| libSceNet | 7 | 7 | 7 |
-| libSceNetCtl | 6 | 6 | 6 |
-| libSceNpEntitlementAccess | 1 | 1 | 1 |
-| libSceNpGameIntent | 1 | 1 | 1 |
-| libSceNpManager | 6 | 6 | 6 |
-| libSceNpManagerForToolkit | 1 | 1 | 1 |
-| libSceNpSessionSignaling | 1 | 1 | 1 |
-| libSceNpUniversalDataSystem | 4 | 4 | 4 |
-| libSceNpWebApi2 | 2 | 2 | 2 |
-| libScePad | 10 | 10 | 10 |
-| libScePlayGo | 15 | 15 | 15 |
-| libScePosix | 1 | 1 | 1 |
-| libSceRtc | 4 | 4 | 4 |
-| libSceSaveData | 2 | 2 | 2 |
-| libSceShareUtility | 2 | 2 | 2 |
-| libSceSsl | 3 | 3 | 3 |
-| libSceSysmodule | 4 | 4 | 4 |
-| libSceSystemGesture | 6 | 6 | 6 |
-| libSceSystemService | 4 | 4 | 4 |
-| libSceUserService | 7 | 7 | 7 |
-| libSceVideoOut | 18 | 18 | 18 |
+- Total modules: 38
+- Total exports: 540 registered exports
+- Implemented: Not available in the generated JSON report
+- Stubbed: Not available in the generated JSON report
+- Missing: Not available in the generated JSON report
+- Unknown: 540 registered exports are not classified by implementation depth
+
+## Module Overview
+
+| Module | Implemented | Stubbed | Missing | Unknown | Total |
+|---|---:|---:|---:|---:|---:|
+| libc | — | — | — | 88 | 88 |
+| LibcInternalExt | — | — | — | 1 | 1 |
+| libKernel | — | — | — | 223 | 223 |
+| libSceAgc | — | — | — | 51 | 51 |
+| libSceAgcDriver | — | — | — | 4 | 4 |
+| libSceAmpr | — | — | — | 15 | 15 |
+| libSceAppContent | — | — | — | 4 | 4 |
+| libSceAudioOut | — | — | — | 4 | 4 |
+| libSceAudioOut2 | — | — | — | 11 | 11 |
+| libSceCommonDialog | — | — | — | 2 | 2 |
+| libSceCoredump | — | — | — | 1 | 1 |
+| libSceFiber | — | — | — | 15 | 15 |
+| libSceGameUpdate | — | — | — | 1 | 1 |
+| libSceHttp | — | — | — | 4 | 4 |
+| libSceHttp2 | — | — | — | 2 | 2 |
+| libSceJson | — | — | — | 5 | 5 |
+| libSceKeyboard | — | — | — | 4 | 4 |
+| libSceNet | — | — | — | 7 | 7 |
+| libSceNetCtl | — | — | — | 6 | 6 |
+| libSceNpEntitlementAccess | — | — | — | 1 | 1 |
+| libSceNpGameIntent | — | — | — | 1 | 1 |
+| libSceNpManager | — | — | — | 6 | 6 |
+| libSceNpManagerForToolkit | — | — | — | 1 | 1 |
+| libSceNpSessionSignaling | — | — | — | 1 | 1 |
+| libSceNpUniversalDataSystem | — | — | — | 4 | 4 |
+| libSceNpWebApi2 | — | — | — | 2 | 2 |
+| libScePad | — | — | — | 10 | 10 |
+| libScePlayGo | — | — | — | 15 | 15 |
+| libScePosix | — | — | — | 1 | 1 |
+| libSceRtc | — | — | — | 4 | 4 |
+| libSceSaveData | — | — | — | 2 | 2 |
+| libSceShareUtility | — | — | — | 2 | 2 |
+| libSceSsl | — | — | — | 3 | 3 |
+| libSceSysmodule | — | — | — | 4 | 4 |
+| libSceSystemGesture | — | — | — | 6 | 6 |
+| libSceSystemService | — | — | — | 4 | 4 |
+| libSceUserService | — | — | — | 7 | 7 |
+| libSceVideoOut | — | — | — | 18 | 18 |
+
+Detailed per-export registration data is listed below. Detailed per-export
+implementation, stub, and missing status is not currently available in the
+generated JSON report. The `Target` column records the guest generation for
+which each export is registered.
+
+Regenerate the machine-readable report with:
+
+```powershell
+SharpEmu --export-report
+```
 
 ## libc (88)
 
