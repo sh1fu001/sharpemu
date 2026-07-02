@@ -79,17 +79,35 @@ public sealed class RunDiagnosticsTests
     }
 
     [Fact]
+    public void RecordShader_DeduplicatesByStageAndAddress()
+    {
+        RunDiagnostics.RecordShader("Vertex", 0x1000, 10, 0xABC);
+        RunDiagnostics.RecordShader("Vertex", 0x1000, 10, 0xABC); // duplicate
+        RunDiagnostics.RecordShader("Pixel", 0x1000, 5, 0xDEF);   // same address, different stage
+        RunDiagnostics.RecordShader("Vertex", 0, 1, 1);           // address 0 is ignored
+
+        var shaders = RunDiagnostics.SnapshotShaders();
+
+        Assert.Equal(2, shaders.Count);
+        var vertex = Assert.Single(shaders, shader => shader.Stage == "Vertex");
+        Assert.Equal(0x1000ul, vertex.Address);
+        Assert.Equal(10, vertex.DwordCount);
+    }
+
+    [Fact]
     public void Reset_ClearsEverything()
     {
         RunDiagnostics.RecordMissingImport("NID", null, null, 0);
         RunDiagnostics.RecordSyscall(1, 0, 0, 0, 0);
         RunDiagnostics.RecordGpuSubmit("dcb", 0, 0, 0);
+        RunDiagnostics.RecordShader("Vertex", 0x2000, 4, 0x99);
 
         RunDiagnostics.Reset();
 
         Assert.Empty(RunDiagnostics.SnapshotMissingImports());
         Assert.Empty(RunDiagnostics.SnapshotSyscalls());
         Assert.Empty(RunDiagnostics.SnapshotGpuSubmits());
+        Assert.Empty(RunDiagnostics.SnapshotShaders());
         Assert.Equal(0, RunDiagnostics.MissingImportTotal);
         Assert.Equal(0, RunDiagnostics.SyscallTotal);
         Assert.Equal(0, RunDiagnostics.GpuSubmitTotal);

@@ -32,6 +32,13 @@ public sealed record GpuSubmitRecord(
     uint DwordCount,
     uint QueueId);
 
+/// <summary>A distinct guest shader program the GPU pipeline bound during execution.</summary>
+public sealed record ShaderRecord(
+    string Stage,
+    ulong Address,
+    int DwordCount,
+    ulong Hash);
+
 /// <summary>
 /// Process-wide, thread-safe collector for the structured facts a diagnostics session cares about:
 /// which NID was missing, which syscall was hit, and which GPU submit was in flight when a game stalls.
@@ -43,11 +50,13 @@ public static class RunDiagnostics
     private const int MaxDistinctMissingImports = 1024;
     private const int MaxDistinctSyscalls = 512;
     private const int MaxGpuSubmitSamples = 512;
+    private const int MaxDistinctShaders = 4096;
 
     private static readonly object _gate = new();
     private static readonly Dictionary<string, MissingImportRecord> _missingImports = new(StringComparer.Ordinal);
     private static readonly Dictionary<ulong, SyscallRecord> _syscalls = new();
     private static readonly Queue<GpuSubmitRecord> _gpuSubmits = new();
+    private static readonly Dictionary<(string Stage, ulong Address), ShaderRecord> _shaders = new();
     private static long _missingImportTotal;
     private static long _syscallTotal;
     private static long _gpuSubmitTotal;
@@ -59,6 +68,7 @@ public static class RunDiagnostics
             _missingImports.Clear();
             _syscalls.Clear();
             _gpuSubmits.Clear();
+            _shaders.Clear();
             _missingImportTotal = 0;
             _syscallTotal = 0;
             _gpuSubmitTotal = 0;
@@ -145,11 +155,41 @@ public static class RunDiagnostics
         }
     }
 
+    public static void RecordShader(string stage, ulong address, int dwordCount, ulong hash)
+    {
+        if (string.IsNullOrEmpty(stage) || address == 0)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            var key = (stage, address);
+            if (_shaders.ContainsKey(key) || _shaders.Count >= MaxDistinctShaders)
+            {
+                return;
+            }
+
+            _shaders[key] = new ShaderRecord(stage, address, dwordCount, hash);
+        }
+    }
+
     public static IReadOnlyList<GpuSubmitRecord> SnapshotGpuSubmits()
     {
         lock (_gate)
         {
             return _gpuSubmits.ToArray();
+        }
+    }
+
+    public static IReadOnlyList<ShaderRecord> SnapshotShaders()
+    {
+        lock (_gate)
+        {
+            return _shaders.Values
+                .OrderBy(record => record.Stage, StringComparer.Ordinal)
+                .ThenBy(record => record.Address)
+                .ToArray();
         }
     }
 

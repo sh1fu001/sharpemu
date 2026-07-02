@@ -45,6 +45,7 @@ public static class DiagnosticsSessionWriter
             WriteJson(sessionDirectory, "modules.json", BuildModules());
             WriteJson(sessionDirectory, "memory_map.json", BuildMemoryMap(session));
             WriteJson(sessionDirectory, "gpu_submits.json", BuildGpuSubmits());
+            WriteJson(sessionDirectory, "shaders.json", BuildShaders());
             WriteJson(sessionDirectory, "crash_context.json", BuildCrashContext(session));
             error = null;
             return sessionDirectory;
@@ -163,6 +164,21 @@ public static class DiagnosticsSessionWriter
                     Hex(record.CommandAddress),
                     record.DwordCount,
                     record.QueueId))
+                .ToArray());
+    }
+
+    private static ShadersDto BuildShaders()
+    {
+        var records = RunDiagnostics.SnapshotShaders();
+        return new ShadersDto(
+            records.Count,
+            records
+                .Select(record => new ShaderDto(
+                    record.Stage,
+                    Hex(record.Address),
+                    record.DwordCount,
+                    record.DwordCount * sizeof(uint),
+                    $"0x{record.Hash:X16}"))
                 .ToArray());
     }
 
@@ -310,6 +326,17 @@ public static class DiagnosticsSessionWriter
         string CommandAddress,
         uint DwordCount,
         uint QueueId);
+
+    private sealed record ShadersDto(
+        int Count,
+        IReadOnlyList<ShaderDto> Shaders);
+
+    private sealed record ShaderDto(
+        string Stage,
+        string Address,
+        int DwordCount,
+        int ByteLength,
+        string Hash);
 
     private sealed record CrashContextDto(
         SessionMetaDto Session,

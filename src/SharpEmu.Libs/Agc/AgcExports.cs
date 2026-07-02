@@ -106,6 +106,9 @@ public static class AgcExports
     private static readonly object _registerDefaultsGate = new();
     private static readonly ConditionalWeakTable<object, RegisterDefaultsAllocation> _registerDefaultsAllocations = new();
     private static readonly ConditionalWeakTable<object, SubmittedGpuState> _submittedGpuStates = new();
+    private static readonly object _shaderCaptureGate = new();
+    private static readonly HashSet<ulong> _capturedShaderAddresses = new();
+    private static long _commandBufferDumpIndex;
 
     private static readonly RegisterDefaultGroup[] PrimaryRegisterDefaults =
     [
@@ -1766,6 +1769,7 @@ public static class AgcExports
         }
 
         RunDiagnostics.RecordGpuSubmit("dcb", commandAddress, dwordCount, 0);
+        TryDumpCommandBuffer(ctx, "dcb", commandAddress, dwordCount);
         var gpuState = _submittedGpuStates.GetValue(ctx.Memory, static _ => new SubmittedGpuState());
         lock (gpuState.Gate)
         {
@@ -1809,6 +1813,7 @@ public static class AgcExports
         }
 
         RunDiagnostics.RecordGpuSubmit("acb", commandAddress, dwordCount, ownerHandle);
+        TryDumpCommandBuffer(ctx, "acb", commandAddress, dwordCount);
         var gpuState = _submittedGpuStates.GetValue(ctx.Memory, static _ => new SubmittedGpuState());
         lock (gpuState.Gate)
         {
@@ -1967,6 +1972,7 @@ public static class AgcExports
                 indexCount != 0)
             {
                 state.SawIndexedDraw = true;
+                CaptureGraphicsShaders(ctx, state);
                 TryTranslateGuestDraw(ctx, state, indexCount);
             }
 
@@ -1977,7 +1983,13 @@ public static class AgcExports
                 autoIndexCount != 0)
             {
                 state.SawIndexedDraw = true;
+                CaptureGraphicsShaders(ctx, state);
                 TryTranslateGuestDraw(ctx, state, autoIndexCount);
+            }
+
+            if (op is ItDispatchDirect or ItDispatchIndirect)
+            {
+                CaptureComputeShader(ctx, state);
             }
 
             if (op == ItNop && register == RFlip && length >= 6)
@@ -2357,6 +2369,134 @@ public static class AgcExports
             $"ps={(hasPixelShader ? $"0x{pixelShaderAddress:X16}" : "missing")} " +
             $"ps_ena={(hasPsInputEna ? $"0x{psInputEna:X8}" : "missing")} " +
             $"ps_addr={(hasPsInputAddr ? $"0x{psInputAddr:X8}" : "missing")}");
+    }
+
+    // Phase 1 graphics logging: identify the shaders a submit binds and record their metadata (stage,
+    // address, size, hash) once per distinct program. This never changes rendering; it only observes.
+    private static void CaptureGraphicsShaders(CpuContext ctx, SubmittedDcbState state)
+    {
+        foreach (var binding in Gen5PipelineInspector.InspectGraphics(state.ShRegisters))
+        {
+            CaptureShader(ctx, binding);
+        }
+    }
+
+    private static void CaptureComputeShader(CpuContext ctx, SubmittedDcbState state)
+    {
+        if (Gen5PipelineInspector.TryInspectCompute(state.ShRegisters, out var binding))
+        {
+            CaptureShader(ctx, binding);
+        }
+    }
+
+    private static void CaptureShader(CpuContext ctx, ShaderBinding binding)
+    {
+        lock (_shaderCaptureGate)
+        {
+            if (!_capturedShaderAddresses.Add(binding.Address))
+            {
+                return;
+            }
+        }
+
+        if (!TryReadShaderCode(ctx, binding.Address, out var code))
+        {
+            return;
+        }
+
+        var dwordCount = Gen5ShaderScanner.TryGetProgramDwordCount(code, out var count) ? count : 0;
+        var byteLength = dwordCount > 0 ? dwordCount * sizeof(uint) : code.Length;
+        var hash = Gen5ShaderScanner.ComputeHash(code.AsSpan(0, byteLength));
+
+        RunDiagnostics.RecordShader(binding.Stage.ToString(), binding.Address, dwordCount, hash);
+        TraceAgc(
+            $"agc.shader stage={binding.Stage} addr=0x{binding.Address:X16} dwords={dwordCount} hash=0x{hash:X16}");
+
+        if (IsGpuDumpEnabled())
+        {
+            TryDumpShader(binding, code.AsSpan(0, byteLength), hash);
+        }
+    }
+
+    private static bool TryReadShaderCode(CpuContext ctx, ulong address, out byte[] code)
+    {
+        // The program length is unknown up front and it may sit near the end of a mapping, so try
+        // decreasing window sizes until a fully mapped read succeeds.
+        foreach (var size in new[] { 65536, 16384, 4096, 1024, 256, 64 })
+        {
+            var buffer = new byte[size];
+            if (ctx.Memory.TryRead(address, buffer))
+            {
+                code = buffer;
+                return true;
+            }
+        }
+
+        code = Array.Empty<byte>();
+        return false;
+    }
+
+    private static bool IsGpuDumpEnabled() =>
+        string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_DUMP_GPU"), "1", StringComparison.Ordinal);
+
+    private static void TryDumpShader(ShaderBinding binding, ReadOnlySpan<byte> code, ulong hash)
+    {
+        try
+        {
+            var directory = Path.Combine(ResolveGpuDumpDirectory(), "shaders");
+            Directory.CreateDirectory(directory);
+            var baseName = $"{binding.Stage.ToString().ToLowerInvariant()}_{hash:X16}";
+            File.WriteAllBytes(Path.Combine(directory, baseName + ".sb"), code.ToArray());
+            File.WriteAllText(
+                Path.Combine(directory, baseName + ".txt"),
+                $"stage={binding.Stage}\naddress=0x{binding.Address:X16}\nbytes={code.Length}\nhash=0x{hash:X16}\n");
+        }
+        catch
+        {
+            // Diagnostics dumping must never disrupt emulation.
+        }
+    }
+
+    private static void TryDumpCommandBuffer(CpuContext ctx, string kind, ulong commandAddress, uint dwordCount)
+    {
+        if (!IsGpuDumpEnabled() || commandAddress == 0 || dwordCount == 0 || dwordCount > 1_000_000)
+        {
+            return;
+        }
+
+        try
+        {
+            var buffer = new byte[checked((int)(dwordCount * sizeof(uint)))];
+            if (!ctx.Memory.TryRead(commandAddress, buffer))
+            {
+                return;
+            }
+
+            var directory = Path.Combine(ResolveGpuDumpDirectory(), "cmdbuffers");
+            Directory.CreateDirectory(directory);
+            var index = Interlocked.Increment(ref _commandBufferDumpIndex);
+            File.WriteAllBytes(Path.Combine(directory, $"{index:D6}_{kind}_0x{commandAddress:X16}.bin"), buffer);
+        }
+        catch
+        {
+            // Best effort.
+        }
+    }
+
+    private static string ResolveGpuDumpDirectory()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "SharpEmu.slnx")))
+            {
+                return Path.Combine(current.FullName, "logs", "gpu");
+            }
+
+            current = current.Parent;
+        }
+
+        return Path.Combine(Directory.GetCurrentDirectory(), "logs", "gpu");
     }
 
     private static bool TryGetShaderAddress(

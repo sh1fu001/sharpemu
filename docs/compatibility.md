@@ -86,6 +86,7 @@ filling in a game-notes file:
 | `memory_map.json`       | Memory-related blockers (mapped regions and protections) |
 | `crash_context.json`    | Current Status, Main Blocker, crash RIP / fault address / NID |
 | `gpu_submits.json`      | Graphics / AGC blockers (recent GPU submits) |
+| `shaders.json`          | Graphics / AGC blockers (shaders bound: stage, address, hash) |
 
 The session is written on a normal exit and on a guest trap/fault; it is skipped
 only if the host process itself is killed abruptly. Pass `--no-diagnostics` (or
