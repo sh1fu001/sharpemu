@@ -211,7 +211,9 @@ public sealed class ModuleManager : IModuleManager
         var nid = exportAttribute.Nid;
         var exportName = exportAttribute.ExportName;
 
-        if (string.IsNullOrWhiteSpace(nid) && !string.IsNullOrWhiteSpace(exportName) && symbolCatalog?.TryGetByExportName(exportName, out var byName) == true)
+        if (!string.IsNullOrWhiteSpace(exportName) &&
+            symbolCatalog?.TryGetByExportName(exportName, out var byName) == true &&
+            (string.IsNullOrWhiteSpace(nid) || nid.StartsWith("__hle_", StringComparison.Ordinal)))
         {
             nid = byName.Nid;
         }

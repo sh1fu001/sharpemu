@@ -72,6 +72,15 @@ public sealed class ExportCoverageReportTests
 
         Assert.NotEmpty(exports);
         Assert.Contains(exports, export => export.Nid == "Up36PTk687E" && export.Name == "sceVideoOutOpen");
+        Assert.Contains(exports, export => export.Nid == "xeYO4u7uyJ0" && export.Name == "fopen");
+        Assert.Contains(exports, export => export.Nid == "rQFVBXp-Cxg" && export.Name == "fseek");
+        Assert.Contains(exports, export => export.Nid == "Qazy8LmXTvw" && export.Name == "ftell");
+        Assert.Contains(exports, export => export.Nid == "viiwFMaNamA" && export.Name == "strstr");
+        Assert.Contains(exports, export => export.Nid == "M4YYbSFfJ8g" && export.Name == "setenv");
+        Assert.Contains(exports, export => export.Nid == "Qs0wWulgl7U" && export.Name == "sceMouseInit");
+        Assert.Contains(exports, export => export.Nid == "SreZybSRWpU" && export.Name == "_Cnd_init");
+        Assert.Contains(exports, export => export.Nid == "YaHc3GS7y7g" && export.Name == "_Mtx_init");
+        Assert.DoesNotContain(exports, export => export.Nid.StartsWith("__hle_", StringComparison.Ordinal));
         Assert.True(exports.Select(export => export.LibraryName).Distinct(StringComparer.Ordinal).Count() > 5);
     }
 

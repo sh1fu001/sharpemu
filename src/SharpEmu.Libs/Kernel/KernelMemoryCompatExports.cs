@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Linq;
 using System.Globalization;
 
@@ -102,12 +103,14 @@ public static class KernelMemoryCompatExports
     private static readonly object _tlsGate = new();
     private static readonly object _ioTraceGate = new();
     private static readonly object _statCacheGate = new();
+    private static readonly object _ctypeGate = new();
     private static readonly Dictionary<ulong, DirectAllocation> _directAllocations = new();
     private static readonly Dictionary<ulong, LibcHeapAllocation> _libcAllocations = new();
     private static readonly Dictionary<ulong, MappedRegion> _mappedRegions = new();
     private static readonly Dictionary<ulong, ulong> _tlsModuleBlocks = new();
     private static readonly HashSet<string> _tracedStatResults = new(StringComparer.Ordinal);
     private static readonly HashSet<string> _negativeStatCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConditionalWeakTable<ICpuMemory, CtypeTablePointer> _ctypeTables = new();
     private static long _nextFileDescriptor = 2;
     private static ulong _nextPhysicalAddress;
     private static ulong _nextVirtualAddress;
@@ -156,6 +159,21 @@ public static class KernelMemoryCompatExports
     private readonly record struct LibcHeapAllocation(nint BaseAddress, nuint Size, nuint Alignment);
     private readonly record struct MappedRegion(ulong Address, ulong Length, int Protection, bool IsFlexible, bool IsDirect, ulong DirectStart);
     private readonly record struct BatchMapEntry(ulong Start, ulong Offset, ulong Length, byte Protection, byte Type, int Operation);
+    private sealed record CtypeTablePointer(ulong Address);
+
+    internal static void TrackReservedVirtualRange(ulong address, ulong length)
+    {
+        lock (_memoryGate)
+        {
+            _mappedRegions[address] = new MappedRegion(
+                address,
+                length,
+                OrbisProtCpuReadWrite,
+                IsFlexible: false,
+                IsDirect: false,
+                DirectStart: 0);
+        }
+    }
 
     internal static bool TryAllocateHleData(
         CpuContext ctx,
@@ -1449,6 +1467,50 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
+        Nid = "sUP1hBaouOw",
+        ExportName = "_Getpctype",
+        Target = Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Getpctype(CpuContext ctx)
+    {
+        lock (_ctypeGate)
+        {
+            if (_ctypeTables.TryGetValue(ctx.Memory, out var existing))
+            {
+                ctx[CpuRegister.Rax] = existing.Address;
+                return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+            }
+
+            const int entryCount = 256;
+            const int entrySize = sizeof(ushort);
+            if (ctx.Memory is not IGuestMemoryAllocator allocator ||
+                !allocator.TryAllocateGuestMemory(entryCount * entrySize, entrySize, out var address))
+            {
+                ctx[CpuRegister.Rax] = 0;
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+            }
+
+            var table = new byte[entryCount * entrySize];
+            for (var value = 0; value < entryCount; value++)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(
+                    table.AsSpan(value * entrySize, entrySize),
+                    GetCtypeMask(value));
+            }
+
+            if (!ctx.Memory.TryWrite(address, table))
+            {
+                ctx[CpuRegister.Rax] = 0;
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+            }
+
+            _ctypeTables.Add(ctx.Memory, new CtypeTablePointer(address));
+            ctx[CpuRegister.Rax] = address;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+    }
+
+    [SysAbiExport(
         Nid = "__hle_toupper",
         ExportName = "toupper",
         Target = Generation.Gen4 | Generation.Gen5,
@@ -1605,8 +1667,61 @@ public static class KernelMemoryCompatExports
         return true;
     }
 
+    private static ushort GetCtypeMask(int value)
+    {
+        const ushort upper = 0x0001;
+        const ushort lower = 0x0002;
+        const ushort digit = 0x0004;
+        const ushort space = 0x0008;
+        const ushort punctuation = 0x0010;
+        const ushort control = 0x0020;
+        const ushort blank = 0x0040;
+        const ushort hexadecimal = 0x0080;
+
+        ushort mask = 0;
+        if (value is >= 'A' and <= 'Z')
+        {
+            mask |= upper;
+            if (value <= 'F')
+            {
+                mask |= hexadecimal;
+            }
+        }
+        else if (value is >= 'a' and <= 'z')
+        {
+            mask |= lower;
+            if (value <= 'f')
+            {
+                mask |= hexadecimal;
+            }
+        }
+        else if (value is >= '0' and <= '9')
+        {
+            mask |= digit | hexadecimal;
+        }
+        else if (value < 0x20 || value == 0x7F)
+        {
+            mask |= control;
+        }
+        else if (value is >= 0x21 and <= 0x7E)
+        {
+            mask |= punctuation;
+        }
+
+        if (value is '\t' or ' ')
+        {
+            mask |= blank;
+        }
+        if (value is '\t' or '\n' or '\v' or '\f' or '\r' or ' ')
+        {
+            mask |= space;
+        }
+
+        return mask;
+    }
+
     [SysAbiExport(
-        Nid = "__hle_fopen",
+        Nid = "xeYO4u7uyJ0",
         ExportName = "fopen",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
@@ -1662,14 +1777,14 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
-        Nid = "__hle_fclose",
+        Nid = "uodLYyUip20",
         ExportName = "fclose",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
     public static int Fclose(CpuContext ctx) => KernelCloseCore(ctx, unchecked((int)ctx[CpuRegister.Rdi]));
 
     [SysAbiExport(
-        Nid = "__hle_fileno",
+        Nid = "Fm-dmyywH9Q",
         ExportName = "fileno",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
@@ -1680,7 +1795,7 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
-        Nid = "__hle_fdopen",
+        Nid = "qdlHjTa9hQ4",
         ExportName = "fdopen",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
@@ -1697,7 +1812,7 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
-        Nid = "__hle_fread",
+        Nid = "lbB+UlZqVG0",
         ExportName = "fread",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
@@ -1746,7 +1861,7 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
-        Nid = "__hle_fwrite",
+        Nid = "MpxhMh8QFro",
         ExportName = "fwrite",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
@@ -1797,7 +1912,7 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
-        Nid = "__hle_fseek",
+        Nid = "rQFVBXp-Cxg",
         ExportName = "fseek",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
@@ -1807,7 +1922,7 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
-        Nid = "__hle_fseeko",
+        Nid = "pkYiKw09PRA",
         ExportName = "fseeko",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
@@ -1825,14 +1940,14 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
-        Nid = "__hle_ftell",
+        Nid = "Qazy8LmXTvw",
         ExportName = "ftell",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
     public static int Ftell(CpuContext ctx) => FtellCore(ctx);
 
     [SysAbiExport(
-        Nid = "__hle_ftello",
+        Nid = "5qP1iVQkdck",
         ExportName = "ftello",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]
@@ -1850,7 +1965,7 @@ public static class KernelMemoryCompatExports
     }
 
     [SysAbiExport(
-        Nid = "__hle_fflush",
+        Nid = "MUjC4lbHrK4",
         ExportName = "fflush",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]

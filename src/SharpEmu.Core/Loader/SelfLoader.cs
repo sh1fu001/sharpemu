@@ -533,6 +533,23 @@ public sealed class SelfLoader : ISelfLoader
             Console.WriteLine($"Processing {relocations.Count} relocations...");
         }
 
+        var relocationsUseImageBase =
+            elfHeader.Type == 3 ||
+            relocations.Any(
+                relocation =>
+                    IsSupportedRelocationType(relocation.Type) &&
+                    ShouldApplyImageBaseToRelocationOffset(
+                        virtualMemory,
+                        relocation.Offset,
+                        imageBase,
+                        declaredPositionIndependent: false));
+        if (relocationsUseImageBase && elfHeader.Type != 3)
+        {
+            Log.Info(
+                $"Rebasing relocations for proprietary ELF type 0x{elfHeader.Type:X4} " +
+                $"at image base 0x{imageBase:X16}.");
+        }
+
         uint maxSymbolIndex = 0;
         foreach (var relocation in relocations)
         {
@@ -591,7 +608,7 @@ public sealed class SelfLoader : ISelfLoader
             stringTable,
             virtualMemory,
             imageBase,
-            elfHeader.Type == 3,
+            relocationsUseImageBase,
             tlsModuleId,
             descriptors,
             orderedImportNids,
@@ -605,6 +622,7 @@ public sealed class SelfLoader : ISelfLoader
                 elfHeader,
                 virtualMemory,
                 imageBase,
+                relocationsUseImageBase,
                 tlsModuleId,
                 descriptors,
                 orderedImportNids,
@@ -707,6 +725,7 @@ public sealed class SelfLoader : ISelfLoader
         ElfHeader elfHeader,
         IVirtualMemory virtualMemory,
         ulong imageBase,
+        bool relocationsUseImageBase,
         uint tlsModuleId,
         ICollection<RelocationDescriptor> descriptors,
         IList<string> orderedImportNids,
@@ -762,7 +781,7 @@ public sealed class SelfLoader : ISelfLoader
                 stringTable,
                 virtualMemory,
                 imageBase,
-                elfHeader.Type == 3,
+                relocationsUseImageBase,
                 tlsModuleId,
                 descriptors,
                 orderedImportNids,
@@ -943,6 +962,40 @@ public sealed class SelfLoader : ISelfLoader
                 RelocationValueKind.Pointer,
                 IsDataImport: GetSymbolType(symbol.Info) == SymbolTypeObject));
         }
+    }
+
+    internal static bool ShouldApplyImageBaseToRelocationOffset(
+        IVirtualMemory virtualMemory,
+        ulong relocationOffset,
+        ulong imageBase,
+        bool declaredPositionIndependent)
+    {
+        if (declaredPositionIndependent)
+        {
+            return true;
+        }
+
+        if (TryResolveMappedAddress(
+                virtualMemory,
+                relocationOffset,
+                0,
+                sizeof(ulong),
+                out _))
+        {
+            return false;
+        }
+
+        if (relocationOffset > ulong.MaxValue - imageBase)
+        {
+            return false;
+        }
+
+        return TryResolveMappedAddress(
+            virtualMemory,
+            imageBase + relocationOffset,
+            0,
+            sizeof(ulong),
+            out _);
     }
 
     private static void RegisterRuntimeSymbolsAndHooks(

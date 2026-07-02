@@ -96,4 +96,46 @@ public sealed class SelfLoaderTests
         Assert.True(vm.TryRead(image.EntryPoint, readBack));
         Assert.Equal(segment, readBack);
     }
+
+    [Fact]
+    public void RelocationRebase_IsInferredForProprietaryPositionIndependentImage()
+    {
+        const ulong imageBase = 0x0000000800000000;
+        const ulong relocationOffset = 0x1982F58;
+        var vm = new VirtualMemory();
+        vm.Map(
+            imageBase + relocationOffset,
+            0x1000,
+            0,
+            ReadOnlySpan<byte>.Empty,
+            ProgramHeaderFlags.Read | ProgramHeaderFlags.Write);
+
+        Assert.True(
+            SelfLoader.ShouldApplyImageBaseToRelocationOffset(
+                vm,
+                relocationOffset,
+                imageBase,
+                declaredPositionIndependent: false));
+    }
+
+    [Fact]
+    public void RelocationRebase_IsNotInferredForMappedAbsoluteOffset()
+    {
+        const ulong imageBase = 0x0000000800000000;
+        const ulong relocationOffset = 0x1982F58;
+        var vm = new VirtualMemory();
+        vm.Map(
+            relocationOffset,
+            0x1000,
+            0,
+            ReadOnlySpan<byte>.Empty,
+            ProgramHeaderFlags.Read | ProgramHeaderFlags.Write);
+
+        Assert.False(
+            SelfLoader.ShouldApplyImageBaseToRelocationOffset(
+                vm,
+                relocationOffset,
+                imageBase,
+                declaredPositionIndependent: false));
+    }
 }

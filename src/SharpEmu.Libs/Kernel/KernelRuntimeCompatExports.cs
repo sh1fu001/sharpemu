@@ -772,6 +772,8 @@ public static class KernelRuntimeCompatExports
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
         }
 
+        KernelMemoryCompatExports.TrackReservedVirtualRange(mappedAddress, length);
+
         lock (_stateGate)
         {
             _nextReservedVirtualBase = Math.Max(_nextReservedVirtualBase, mappedAddress + length);
