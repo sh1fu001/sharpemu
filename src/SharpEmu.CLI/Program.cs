@@ -30,6 +30,11 @@ internal static partial class Program
         Console.Error.WriteLine($"[DEBUG] SharpEmu starting with {args.Length} args");
 
         args = NormalizeInternalArguments(args, out var isMitigatedChild);
+        if (TryHandleExportReport(args, out var exportReportExit))
+        {
+            return exportReportExit;
+        }
+
         if (!isMitigatedChild && TryRunMitigatedChild(args, out var childExitCode))
         {
             return childExitCode;
@@ -428,7 +433,80 @@ internal static partial class Program
     private static void PrintUsage()
     {
         Log.Info("Usage: SharpEmu.CLI [--strict] [--trace-imports[=N]] [--cpu-engine=<native>] [--log-level=<level>] [--no-diagnostics] <path-to-eboot.bin>");
+        Log.Info("       SharpEmu.CLI --export-report[=<path>]   (writes the HLE export coverage report and exits)");
         Log.Info(@"Example: SharpEmu.CLI --cpu-engine=native --trace-imports=64 --log-level=debug ""E:\Games\...\eboot.bin""");
+    }
+
+    private static bool TryHandleExportReport(string[] args, out int exitCode)
+    {
+        exitCode = 0;
+        string? outputPath = null;
+        var requested = false;
+        const string prefix = "--export-report=";
+        foreach (var argument in args)
+        {
+            if (string.Equals(argument, "--export-report", StringComparison.OrdinalIgnoreCase))
+            {
+                requested = true;
+            }
+            else if (argument.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                requested = true;
+                var value = argument[prefix.Length..].Trim().Trim('"');
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    outputPath = value;
+                }
+            }
+        }
+
+        if (!requested)
+        {
+            return false;
+        }
+
+        try
+        {
+            var exports = HleModuleCatalog.GetRegisteredExports();
+            var markdownPath = Path.GetFullPath(outputPath ?? Path.Combine(ResolveDocsRoot(), "hle-exports.md"));
+            var jsonPath = Path.ChangeExtension(markdownPath, ".json");
+            var directory = Path.GetDirectoryName(markdownPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.WriteAllText(markdownPath, ExportCoverageReport.RenderMarkdown(exports));
+            File.WriteAllText(jsonPath, ExportCoverageReport.RenderJson(exports));
+
+            var moduleCount = exports.Select(export => export.LibraryName).Distinct(StringComparer.Ordinal).Count();
+            Log.Info($"Export coverage report: {exports.Count} exports across {moduleCount} modules");
+            Log.Info($"  {markdownPath}");
+            Log.Info($"  {jsonPath}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to generate export coverage report.", ex);
+            exitCode = 5;
+        }
+
+        return true;
+    }
+
+    private static string ResolveDocsRoot()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "SharpEmu.slnx")))
+            {
+                return Path.Combine(current.FullName, "docs");
+            }
+
+            current = current.Parent;
+        }
+
+        return Path.Combine(Directory.GetCurrentDirectory(), "docs");
     }
 
     private static bool TryParseArguments(

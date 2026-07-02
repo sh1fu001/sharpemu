@@ -8,7 +8,9 @@ path = [
     "scripts/ps5_names.txt",
     "src/SharpEmu.HLE/Aerolib/aerolib.bin",
     "_logs/**",
-    ".github/images/**"
+    ".github/images/**",
+    "docs/hle-exports.md",
+    "docs/hle-exports.json"
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "SharpEmu Emulator Project"

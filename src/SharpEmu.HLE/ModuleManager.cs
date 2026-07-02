@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 
 namespace SharpEmu.HLE;
@@ -90,6 +92,15 @@ public sealed class ModuleManager : IModuleManager
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(exportName);
         return _exportNameTable.TryGetValue(exportName, out export!);
+    }
+
+    public IReadOnlyList<ExportedFunction> GetRegisteredExports()
+    {
+        return _exportTable.Values
+            .OrderBy(export => export.LibraryName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(export => export.Name, StringComparer.Ordinal)
+            .ThenBy(export => export.Nid, StringComparer.Ordinal)
+            .ToArray();
     }
 
     public OrbisGen2Result Dispatch(string nid, CpuContext context)

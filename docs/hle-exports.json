@@ -1,0 +1,3010 @@
+{
+  "totalExports": 540,
+  "moduleCount": 38,
+  "modules": [
+    {
+      "module": "libc",
+      "exportCount": 88,
+      "gen4Count": 88,
+      "gen5Count": 88,
+      "exports": [
+        {
+          "name": "__cxa_atexit",
+          "nid": "tsvEmnenz48",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "__cxa_finalize",
+          "nid": "H2e8t5ScQGc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "__cxa_guard_abort",
+          "nid": "2emaaluWzUw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "__cxa_guard_acquire",
+          "nid": "3GPpjQdAMTw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "__cxa_guard_release",
+          "nid": "9rAeANT2tyE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_init_env",
+          "nid": "bzQExy189ZI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "aligned_alloc",
+          "nid": "2Btkg8k24Zg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "atexit",
+          "nid": "8G2LB\u002BA3rzg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "atoi",
+          "nid": "__hle_atoi",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "calloc",
+          "nid": "2X5agFjKxMc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "catchReturnFromMain",
+          "nid": "XKRegsFpEpk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "closedir",
+          "nid": "__hle_closedir",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fclose",
+          "nid": "__hle_fclose",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fdopen",
+          "nid": "__hle_fdopen",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "ferror",
+          "nid": "__hle_ferror",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fflush",
+          "nid": "__hle_fflush",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fgetc",
+          "nid": "__hle_fgetc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fgets",
+          "nid": "__hle_fgets",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fileno",
+          "nid": "__hle_fileno",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fopen",
+          "nid": "__hle_fopen",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fprintf",
+          "nid": "__hle_fprintf",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fputc",
+          "nid": "__hle_fputc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fputs",
+          "nid": "QrZZdJ8XsX0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fread",
+          "nid": "__hle_fread",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "free",
+          "nid": "tIhsqj0qsFE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fseek",
+          "nid": "__hle_fseek",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fseeko",
+          "nid": "__hle_fseeko",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fstat",
+          "nid": "__hle_fstat",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "ftell",
+          "nid": "__hle_ftell",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "ftello",
+          "nid": "__hle_ftello",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "fwrite",
+          "nid": "__hle_fwrite",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "getenv",
+          "nid": "__hle_getenv",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "malloc",
+          "nid": "gQX\u002B4GDQjpM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "memalign",
+          "nid": "Ujf3KzMvRmI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "memchr",
+          "nid": "__hle_memchr",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "memcmp",
+          "nid": "DfivPArhucg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "memcpy",
+          "nid": "Q3VBxCXhUHs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "memmove",
+          "nid": "\u002BP6FRGH4LfA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "memset",
+          "nid": "8zTFvBIAIN8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "mkdir",
+          "nid": "__hle_mkdir",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "opendir",
+          "nid": "__hle_opendir",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "perror",
+          "nid": "EMutwaQ34Jo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "posix_memalign",
+          "nid": "cVSk9y8URbc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "printf",
+          "nid": "hcuQgD53UxM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "puts",
+          "nid": "__hle_puts",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "rand",
+          "nid": "__hle_rand",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "readdir",
+          "nid": "__hle_readdir",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "realloc",
+          "nid": "Y7aJ1uydPMo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "remove",
+          "nid": "__hle_remove",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "setjmp",
+          "nid": "__hle_setjmp",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "snprintf",
+          "nid": "eLdDw6l0-bU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "srand",
+          "nid": "__hle_srand",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "stat",
+          "nid": "__hle_stat",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strchr",
+          "nid": "__hle_strchr",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strcmp",
+          "nid": "Ovb2dSJOAuE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strcpy",
+          "nid": "kiZSXIWd9vg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strlcat",
+          "nid": "__hle_strlcat",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strlcpy",
+          "nid": "__hle_strlcpy",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strlen",
+          "nid": "j4ViWNHEgww",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strncmp",
+          "nid": "aesyjrHVWy4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strncpy",
+          "nid": "6sJWiWSRuqk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strnlen",
+          "nid": "5jNubw4vlAA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strrchr",
+          "nid": "__hle_strrchr",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strstr",
+          "nid": "__hle_strstr",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strtol",
+          "nid": "__hle_strtol",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strtoll",
+          "nid": "__hle_strtoll",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strtoul",
+          "nid": "__hle_strtoul",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "strtoull",
+          "nid": "__hle_strtoull",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "swprintf",
+          "nid": "nJz16JE1txM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "swprintf_s",
+          "nid": "Im55VJ-Bekc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "time",
+          "nid": "__hle_time",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "tolower",
+          "nid": "__hle_tolower",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "toupper",
+          "nid": "__hle_toupper",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "ungetc",
+          "nid": "__hle_ungetc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "vprintf",
+          "nid": "GMpvxPFW924",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "vsnprintf",
+          "nid": "Q2V\u002BiqvjgC0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "vswprintf",
+          "nid": "u0XOsuOmOzc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "vswprintf_s",
+          "nid": "oDoV9tyHTbA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcschr",
+          "nid": "Ezzq78ZgHPs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcscmp",
+          "nid": "pNtJdE3x49E",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcscoll",
+          "nid": "fV2xHER\u002BbKE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcscpy",
+          "nid": "FM5NPnLqBc8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcscpy_s",
+          "nid": "6f5f-qx4ucA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcslen",
+          "nid": "LHMrG7e8G78",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcslen",
+          "nid": "WkkeywLJcgU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcsncmp",
+          "nid": "E8wCoUEbfzk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcsncpy",
+          "nid": "0nV21JjYCH8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "wcsncpy_s",
+          "nid": "Slmz4HMpNGs",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "LibcInternalExt",
+      "exportCount": 1,
+      "gen4Count": 1,
+      "gen5Count": 1,
+      "exports": [
+        {
+          "name": "LibcHeapGetTraceInfo",
+          "nid": "NWtTN10cJzE",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libKernel",
+      "exportCount": 223,
+      "gen4Count": 223,
+      "gen5Count": 223,
+      "exports": [
+        {
+          "name": "__elf_phdr_match_addr",
+          "nid": "Fjc4-n1\u002By2g",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "__error",
+          "nid": "9BcDykPmo1I",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "__pthread_cxa_finalize",
+          "nid": "kbw4UHHSYy0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "__stack_chk_fail",
+          "nid": "Ou3iL1abvng",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "__stack_chk_guard",
+          "nid": "f7uOxY9mM1U",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "__tls_get_addr",
+          "nid": "vNe1w4diLCs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_close",
+          "nid": "NNtFaKJbPt0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_exit",
+          "nid": "6Z83sYWFlA8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_open",
+          "nid": "6c3rCVE-fTU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_read",
+          "nid": "DRuBt2pvICk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceKernelRtldSetApplicationHeapAPI",
+          "nid": "p5EcQeEeJAE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceKernelRtldThreadAtexitDecrement",
+          "nid": "8OnWXlgQlvo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceKernelRtldThreadAtexitIncrement",
+          "nid": "Tz4RNUCBbGI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceKernelSetThreadAtexitCount",
+          "nid": "pB-yGZ2nQ9o",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceKernelSetThreadAtexitReport",
+          "nid": "WhCc1w3EhSI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceKernelSetThreadDtors",
+          "nid": "rNhWz\u002BlvOMU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sigprocmask",
+          "nid": "6xVpy0Fdq\u002BI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_write",
+          "nid": "FxVZqBAA7ks",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "clock_gettime",
+          "nid": "lLMT9vJAck0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "close",
+          "nid": "bY-PO6JhzhQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "exit",
+          "nid": "uMei1W9uyNo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "getargc",
+          "nid": "__hle_getargc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "getargv",
+          "nid": "__hle_getargv",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "gettimeofday",
+          "nid": "n88vx3C5nW8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "lseek",
+          "nid": "Oy6IpwgtYOk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "open",
+          "nid": "wuCroIGjt2g",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_attr_destroy",
+          "nid": "zHchY8ft5pk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_attr_init",
+          "nid": "wtkt-teR1so",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_attr_setdetachstate",
+          "nid": "__hle_attr_detach",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_attr_setstacksize",
+          "nid": "2Q0z6rnBrTE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_cond_broadcast",
+          "nid": "mkx2fVhNMsg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_cond_init",
+          "nid": "0TyVk4MSLt0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_cond_signal",
+          "nid": "2MOy\u002BrUfuhQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_cond_wait",
+          "nid": "Op8TBGY5KHg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_create",
+          "nid": "OxhIB8LB-PQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_create_name_np",
+          "nid": "Jmi\u002B9w9u0E4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_getspecific",
+          "nid": "0-KXaS70xy4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_getthreadid_np",
+          "nid": "3eqs37G74-s",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_join",
+          "nid": "h9CcP3J0oVM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_key_create",
+          "nid": "mqULNdimTn0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_key_delete",
+          "nid": "6BpEZuDT7YI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_mutex_destroy",
+          "nid": "ltCfaGr2JGE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_mutex_init",
+          "nid": "ttHNfU\u002BqDBU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_mutex_lock",
+          "nid": "7H0iTOciTLo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_mutex_trylock",
+          "nid": "K-jXhbt2gn4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_mutex_unlock",
+          "nid": "2Z\u002BPpY6CaJg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_mutexattr_destroy",
+          "nid": "HF7lK46xzjY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_mutexattr_init",
+          "nid": "dQHWEsJtoE4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_mutexattr_setprotocol",
+          "nid": "5txKfcMUAok",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_mutexattr_settype",
+          "nid": "mDmgMOGVUqg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_once",
+          "nid": "__hle_pthread_once",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_rwlock_destroy",
+          "nid": "1471ajPzxh0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_rwlock_init",
+          "nid": "ytQULN-nhL4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_rwlock_rdlock",
+          "nid": "iGjsr1WAtI0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_rwlock_unlock",
+          "nid": "EgmLo6EWgso",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_rwlock_wrlock",
+          "nid": "sIlRvQqsN2Y",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_self",
+          "nid": "EotR8a3ASf4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_setschedparam",
+          "nid": "Xs9hdiD7sAA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "pthread_setspecific",
+          "nid": "WrOLvHU0yQM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "read",
+          "nid": "AqBioC2vF3I",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAddAmprEvent",
+          "nid": "bBfz7kMF2Ho",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAddAmprSystemEvent",
+          "nid": "vuae5JPNt9A",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAddUserEvent",
+          "nid": "4R6-OvI2cEA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAddUserEventEdge",
+          "nid": "WDszmSbWuDk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAioInitializeImpl",
+          "nid": "vYU8P9Td2Zo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAioInitializeParam",
+          "nid": "nu4a0-arQis",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAllocateDirectMemory",
+          "nid": "rTXw65xmLIA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAllocateMainDirectMemory",
+          "nid": "B\u002Bvc2AO2Zrc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAprResolveFilepathsToIdsAndFileSizes",
+          "nid": "gEpBkcwxUjw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAprSubmitCommandBuffer",
+          "nid": "eE4Szl8sil8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAprSubmitCommandBufferAndGetId",
+          "nid": "qvMUCyyaCSI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAprSubmitCommandBufferAndGetResult",
+          "nid": "ASoW5WE-UPo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAprWaitCommandBuffer",
+          "nid": "rqwFKI4PAiM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAvailableDirectMemorySize",
+          "nid": "C0f7TJcbfac",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelAvailableFlexibleMemorySize",
+          "nid": "aNz11fnnzi4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelBatchMap",
+          "nid": "2SKEx6bSq-4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelBatchMap2",
+          "nid": "kBJzF8x4SyE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelCancelEventFlag",
+          "nid": "PZku4ZrXJqg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelCancelSema",
+          "nid": "4DM06U2BNEY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelClearEventFlag",
+          "nid": "7uhBFWRAS60",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelClockGettime",
+          "nid": "QBi7HCK03hw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelClose",
+          "nid": "UK2Tl2DWUns",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelConvertLocaltimeToUtc",
+          "nid": "0NTHN1NKONI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelConvertUtcToLocaltime",
+          "nid": "-o5uEDpN\u002BoY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelCreateEqueue",
+          "nid": "D0OdFMjp46I",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelCreateEventFlag",
+          "nid": "BpFoboUJoZU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelCreateSema",
+          "nid": "188x57JYp0g",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelDebugRaiseException",
+          "nid": "OMDRKKAZ8I4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelDebugRaiseExceptionOnReleaseMode",
+          "nid": "zE-wXIZjLoM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelDeleteAmprEvent",
+          "nid": "bMmid3pfyjo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelDeleteAmprSystemEvent",
+          "nid": "Ij\u002BryuEClXQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelDeleteEqueue",
+          "nid": "jpFjmgAC5AE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelDeleteEventFlag",
+          "nid": "8mql9OcQnd4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelDeleteSema",
+          "nid": "R1Jvn8bSCW8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelDeleteUserEvent",
+          "nid": "LJDwdSNTnDg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelDirectMemoryQuery",
+          "nid": "BHouLQzh0X0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelExitSblock",
+          "nid": "Ac86z8q7T8A",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelFstat",
+          "nid": "kBwCPsYX-m4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetCompiledSdkVersion",
+          "nid": "WB66evu8bsU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetDirectMemorySize",
+          "nid": "pO96TwzOm5E",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetEventData",
+          "nid": "kwGyyjohI50",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetEventFilter",
+          "nid": "23CPPI1tyBY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetEventId",
+          "nid": "mJ7aghmgvfc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetEventUserData",
+          "nid": "vz\u002Bpg2zdopI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetGPI",
+          "nid": "4oXYe9Xmk0Q",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetKqueueFromEqueue",
+          "nid": "QyrxcdBrb0M",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetModuleInfo",
+          "nid": "kUpgrXIrz7Q",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetModuleInfo2",
+          "nid": "QgsKEUfkqMA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetModuleInfoForUnwind",
+          "nid": "RpQJJVKTiFM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetModuleInfoFromAddr",
+          "nid": "f7KBOafysXo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetModuleInfoInternal",
+          "nid": "HZO7xOos4xc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetModuleList",
+          "nid": "IuxnUuXk6Bg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetModuleList2",
+          "nid": "ZzzC3ZGVAkc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetProcParam",
+          "nid": "959qrazPIrg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetProcessTime",
+          "nid": "4J2sUJmuHZQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetProcessTimeCounter",
+          "nid": "fgxnMeTNUtY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetProcessTimeCounterFrequency",
+          "nid": "BNowx2l588E",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetSanitizerMallocReplaceExternal",
+          "nid": "py6L8jiVAN8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetSanitizerNewReplaceExternal",
+          "nid": "bnZxYgAFeA0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetTscFrequency",
+          "nid": "1j3S3n-tTW4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetdents",
+          "nid": "j2AIqSqJP0w",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGetdirentries",
+          "nid": "taRWhTJFTgE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelGettimeofday",
+          "nid": "ejekcaNQNq0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelIsAddressSanitizerEnabled",
+          "nid": "jh\u002B8XiK4LeE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelIsNeoMode",
+          "nid": "WslcK1FQcGI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelLoadStartModule",
+          "nid": "wzvqT4UqKX8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelLseek",
+          "nid": "oib76F-12fk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelMapDirectMemory",
+          "nid": "L-Q3LEjIbgA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelMapFlexibleMemory",
+          "nid": "IWIBBdTHit4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelMapNamedDirectMemory",
+          "nid": "NcaWUxfMNIQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelMapNamedFlexibleMemory",
+          "nid": "mL8NDH86iQI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelMkdir",
+          "nid": "1-LFLmRFxxM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelMprotect",
+          "nid": "vSMAm3cxYTY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelMtypeprotect",
+          "nid": "9bfdLIyuwCY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelMunmap",
+          "nid": "cQke9UuBQOk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelOpen",
+          "nid": "1G3lF1Gg1k8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelPollEventFlag",
+          "nid": "9lvj5DjHZiA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelPollSema",
+          "nid": "12wOHk8ywb0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelQueryMemoryProtection",
+          "nid": "WFcfL2lzido",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelRead",
+          "nid": "Cg4srZ6TKbU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelReadTsc",
+          "nid": "-2IRUCO--PM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelReleaseDirectMemory",
+          "nid": "MBuItvba6z8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelReserveVirtualRange",
+          "nid": "7oxv3PPCumo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelRmdir",
+          "nid": "naInUjYt3so",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelSetEventFlag",
+          "nid": "IOnSvHzqu6A",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelSetGPO",
+          "nid": "ca7v6Cxulzs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelSetPrtAperture",
+          "nid": "BohYr-F7-is",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelSignalSema",
+          "nid": "4czppHBiriw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelStat",
+          "nid": "eV9wAD2riIA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelStopUnloadModule",
+          "nid": "QKd0qM58Qes",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelTriggerUserEvent",
+          "nid": "F6e0kwo4cnk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelUnlink",
+          "nid": "AUXVxWeJU-A",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelUsleep",
+          "nid": "1jfXLRVzisc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelUuidCreate",
+          "nid": "Xjoosiw\u002BXPI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelVirtualQuery",
+          "nid": "rVjRvHJ0X6c",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelWaitEqueue",
+          "nid": "fzyMKs9kim0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelWaitEventFlag",
+          "nid": "JTvBflhYazQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelWaitSema",
+          "nid": "Zxa0VhQVTsk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKernelWrite",
+          "nid": "4wSze92BhLI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrDestroy",
+          "nid": "62KCwEMmzcM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrGet",
+          "nid": "x1X76arYMxU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrGetaffinity",
+          "nid": "8\u002Bs5BzZjxSg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrGetdetachstate",
+          "nid": "JaRMy\u002BQcpeU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrGetguardsize",
+          "nid": "txHtngJ\u002Beyc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrGetstack",
+          "nid": "-quPa4SEJUw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrGetstackaddr",
+          "nid": "Ru36fiTtJzA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrGetstacksize",
+          "nid": "-fA\u002B7ZlGDQs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrInit",
+          "nid": "nsYoNRywwNg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrSetaffinity",
+          "nid": "3qxgM4ezETA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrSetdetachstate",
+          "nid": "-Wreprtu0Qs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrSetguardsize",
+          "nid": "El\u002BcQ20DynU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrSetinheritsched",
+          "nid": "eXbUSpEaTsA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrSetschedparam",
+          "nid": "DzES9hQF4f4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrSetschedpolicy",
+          "nid": "4\u002Bh9EzwKF4I",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadAttrSetstacksize",
+          "nid": "UTXzJbWhhTE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadCondBroadcast",
+          "nid": "JGgj7Uvrl\u002BA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadCondDestroy",
+          "nid": "g\u002BPZd2hiacg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadCondInit",
+          "nid": "2Tb92quprl0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadCondSignal",
+          "nid": "kDh-NfxgMtE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadCondTimedwait",
+          "nid": "BmMjYxmew1w",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadCondWait",
+          "nid": "WKAXJ4XBPQ4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadCondattrDestroy",
+          "nid": "waPcxYiR3WA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadCondattrInit",
+          "nid": "m5-2bsNfv7s",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadCreate",
+          "nid": "6UgtwV\u002B0zb4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadDetach",
+          "nid": "4qGrR6eoP9Y",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadEqual",
+          "nid": "3PtV6p3QNX4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadExit",
+          "nid": "3kg7rT0NQIs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadGetaffinity",
+          "nid": "rcrVFJsQWRY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadGetname",
+          "nid": "How7B8Oet6k",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadGetprio",
+          "nid": "1tKyG7RlMJo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadGetspecific",
+          "nid": "eoht7mQOCmo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadGetthreadid",
+          "nid": "EI-5-jlq2dE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadJoin",
+          "nid": "onNY9Byn-W8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadKeyCreate",
+          "nid": "geDaqgH9lTg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadKeyDelete",
+          "nid": "PrdHuuDekhY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadMutexDestroy",
+          "nid": "2Of0f\u002B3mhhE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadMutexInit",
+          "nid": "cmo1RIYva9o",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadMutexLock",
+          "nid": "9UK1vLZQft4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadMutexTrylock",
+          "nid": "upoVrzMHFeE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadMutexUnlock",
+          "nid": "tn3VlD0hG60",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadMutexattrDestroy",
+          "nid": "smWEktiyyG0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadMutexattrInit",
+          "nid": "F8bUHwAG284",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadMutexattrSetprotocol",
+          "nid": "1FGvU0i9saQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadMutexattrSettype",
+          "nid": "iMp8QpE\u002BXO4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadOnce",
+          "nid": "14bOACANTBo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadRwlockDestroy",
+          "nid": "BB\u002Bkb08Tl9A",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadRwlockInit",
+          "nid": "6ULAa0fq4jA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadRwlockRdlock",
+          "nid": "Ox9i0c7L5w0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadRwlockUnlock",
+          "nid": "\u002BL98PIbGttk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadRwlockWrlock",
+          "nid": "mqdNorrB\u002BgI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadSelf",
+          "nid": "aI\u002BOeCz8xrQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadSetaffinity",
+          "nid": "bt3CTBKmGyI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadSetprio",
+          "nid": "W0Hpm2X0uPE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadSetspecific",
+          "nid": "\u002BBzXYkqYeLE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePthreadYield",
+          "nid": "T72hz6ffq08",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sem_destroy",
+          "nid": "__hle_sem_destroy",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sem_getvalue",
+          "nid": "__hle_sem_getvalue",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sem_init",
+          "nid": "__hle_sem_init",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sem_post",
+          "nid": "__hle_sem_post",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sem_timedwait",
+          "nid": "__hle_sem_timedwait",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sem_trywait",
+          "nid": "__hle_sem_trywait",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sem_wait",
+          "nid": "__hle_sem_wait",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "write",
+          "nid": "FN4gaPmuFV8",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceAgc",
+      "exportCount": 51,
+      "gen4Count": 0,
+      "gen5Count": 51,
+      "exports": [
+        {
+          "name": "sceAgcAcbAcquireMem",
+          "nid": "KT-hTp-Ch14",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcAcbDispatchIndirect",
+          "nid": "j3EtxFkSIhQ",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcAcbEventWrite",
+          "nid": "cFazmnXpJOE",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcAcbResetQueue",
+          "nid": "JrtiDtKeS38",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcAcbWaitRegMem",
+          "nid": "htn36gPnBk4",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcAcbWriteData",
+          "nid": "eZ4\u002B17OQz4Q",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcCbDispatch",
+          "nid": "k3GhuSNmBLU",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcCbNop",
+          "nid": "LtTouSCZjHM",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcCbReleaseMem",
+          "nid": "wr23dPKyWc0",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcCbSetShRegisterRangeDirect",
+          "nid": "n2fD4A\u002Bpb\u002Bg",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcCbSetShRegistersDirect",
+          "nid": "UZbQjYAwwXM",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcCreateInterpolantMapping",
+          "nid": "HV4j\u002BE0MBHE",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcCreatePrimState",
+          "nid": "D9sr1xGUriE",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcCreateShader",
+          "nid": "f3dg2CSgRKY",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbAcquireMem",
+          "nid": "57labkp\u002BrSQ",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbDispatchIndirect",
+          "nid": "CtB\u002BA9-VxO0",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbDmaData",
+          "nid": "WmAc2MEj6Io",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbDrawIndexAuto",
+          "nid": "Yw0jKSqop\u002BE",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbDrawIndexOffset",
+          "nid": "B\u002BaG9DUnTKA",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbEventWrite",
+          "nid": "aJf\u002Bj5yntiU",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbGetLodStats",
+          "nid": "vuSXe69VILM",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbGetLodStatsGetSize",
+          "nid": "rUuVjyR\u002BRd4",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbPopMarker",
+          "nid": "H7uZqCoNuWk",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbPushMarker",
+          "nid": "\u002BkSrjIVxKFE",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbResetQueue",
+          "nid": "TRO721eVt4g",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbSetBaseIndirectArgs",
+          "nid": "RmaJwLtc8rY",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbSetCxRegistersIndirect",
+          "nid": "ZvwO9euwYzc",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbSetFlip",
+          "nid": "YUeqkyT7mEQ",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbSetIndexBuffer",
+          "nid": "l4fM9K-Lyks",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbSetIndexSize",
+          "nid": "GIIW2J37e70",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbSetNumInstances",
+          "nid": "tSBxhAPyytQ",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbSetShRegistersIndirect",
+          "nid": "-HOOCn0JY48",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbSetUcRegistersIndirect",
+          "nid": "hvUfkUIQcOE",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbWaitRegMem",
+          "nid": "VmW0Tdpy420",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbWaitUntilSafeForRendering",
+          "nid": "MWiElSNE8j8",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDcbWriteData",
+          "nid": "i1jyy49AjXU",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDmaDataPatchSetDstAddressOrOffset",
+          "nid": "IxYiarKlXxM",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcGetDataPacketPayloadAddress",
+          "nid": "V\u002B\u002BUgBtQhn0",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcGetRegisterDefaults2",
+          "nid": "2JtWUUiYBXs",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcGetRegisterDefaults2Internal",
+          "nid": "wRbq6ZjNop4",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcInit",
+          "nid": "23LRUSvYu1M",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcQueueEndOfPipeActionPatchAddress",
+          "nid": "0fWWK5uG9rQ",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcSetCxRegIndirectPatchAddRegisters",
+          "nid": "d-6uF9sZDIU",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcSetCxRegIndirectPatchSetAddress",
+          "nid": "vcmNN\u002BAAXnY",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcSetShRegIndirectPatchAddRegisters",
+          "nid": "z2duB-hHQSM",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcSetShRegIndirectPatchSetAddress",
+          "nid": "Qrj4c\u002B61z4A",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcSetUcRegIndirectPatchAddRegisters",
+          "nid": "vRoArM9zaIk",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcSetUcRegIndirectPatchSetAddress",
+          "nid": "6lNcCp\u002Bfxi4",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcSuspendPoint",
+          "nid": "h9z6\u002B0hEydk",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcUnknownQj7QZpgr9Uw",
+          "nid": "qj7QZpgr9Uw",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcWaitRegMemPatchAddress",
+          "nid": "3KDcnM3lrcU",
+          "target": "Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceAgcDriver",
+      "exportCount": 4,
+      "gen4Count": 0,
+      "gen5Count": 4,
+      "exports": [
+        {
+          "name": "sceAgcDriverAddEqEvent",
+          "nid": "w2rJhmD\u002BdsE",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDriverDeleteEqEvent",
+          "nid": "DL2RXaXOy88",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDriverSubmitAcb",
+          "nid": "gSRnr79F8tQ",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAgcDriverSubmitDcb",
+          "nid": "UglJIZjGssM",
+          "target": "Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceAmpr",
+      "exportCount": 15,
+      "gen4Count": 0,
+      "gen5Count": 15,
+      "exports": [
+        {
+          "name": "sceAmprAprCommandBufferConstructor",
+          "nid": "a8uLzYY--tM",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprAprCommandBufferDestructor",
+          "nid": "Qs1xtplKo0U",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprAprCommandBufferReadFile",
+          "nid": "mQ16-QdKv7k",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprCommandBufferClearBuffer",
+          "nid": "ULvXMDz56po",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprCommandBufferConstructor",
+          "nid": "8aI7R7WaOlc",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprCommandBufferDestructor",
+          "nid": "GuchCTefuZw",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprCommandBufferGetCurrentOffset",
+          "nid": "GnxKOHEawhk",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprCommandBufferGetSize",
+          "nid": "tZDDEo2tE5k",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprCommandBufferReset",
+          "nid": "baQO9ez2gL4",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprCommandBufferSetBuffer",
+          "nid": "N-FSPA4S3nI",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprCommandBufferWriteAddressOnCompletion",
+          "nid": "sJXyWHjP-F8",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprCommandBufferWriteKernelEventQueue_04_00",
+          "nid": "H896Pt-yB4I",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprMeasureCommandSizeReadFile",
+          "nid": "vWU-odnS\u002BfU",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprMeasureCommandSizeWriteAddressOnCompletion",
+          "nid": "C\u002BIEj\u002BBsAFM",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAmprMeasureCommandSizeWriteKernelEventQueue_04_00",
+          "nid": "sSAUCCU1dv4",
+          "target": "Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceAppContent",
+      "exportCount": 4,
+      "gen4Count": 4,
+      "gen5Count": 4,
+      "exports": [
+        {
+          "name": "sceAppContentAppParamGetInt",
+          "nid": "99b82IKXpH4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceAppContentGetAddcontInfoList",
+          "nid": "xnd8BJzAxmk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceAppContentInitialize",
+          "nid": "R9lA82OraNs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceAppContentTemporaryDataMount2",
+          "nid": "buYbeLOGWmA",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceAudioOut",
+      "exportCount": 4,
+      "gen4Count": 4,
+      "gen5Count": 4,
+      "exports": [
+        {
+          "name": "sceAudioOutClose",
+          "nid": "__hle_audio_close",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceAudioOutInit",
+          "nid": "__hle_audio_init",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceAudioOutOpen",
+          "nid": "__hle_audio_open",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceAudioOutOutput",
+          "nid": "__hle_audio_output",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceAudioOut2",
+      "exportCount": 11,
+      "gen4Count": 0,
+      "gen5Count": 11,
+      "exports": [
+        {
+          "name": "sceAudioOut2ContextCreate",
+          "nid": "0x6o1VVAYSY",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2ContextDestroy",
+          "nid": "on6ZH7Abo10",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2ContextQueryMemory",
+          "nid": "pDmme7Bgm6E",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2ContextResetParam",
+          "nid": "t5YrizufpQc",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2GetSpeakerInfo",
+          "nid": "DImz2Ft9E2g",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2Initialize",
+          "nid": "g2tViFIohHE",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2PortCreate",
+          "nid": "JK2wamZPzwM",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2PortDestroy",
+          "nid": "cd\u002BRtw\u002BD1x8",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2PortGetState",
+          "nid": "gatEUKG\u002BEa4",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2UserCreate",
+          "nid": "xywYcRB7nbQ",
+          "target": "Gen5"
+        },
+        {
+          "name": "sceAudioOut2UserDestroy",
+          "nid": "IaZXJ9M79uo",
+          "target": "Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceCommonDialog",
+      "exportCount": 2,
+      "gen4Count": 2,
+      "gen5Count": 2,
+      "exports": [
+        {
+          "name": "sceCommonDialogInitialize",
+          "nid": "uoUpLGNkygk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceCommonDialogIsUsed",
+          "nid": "BQ3tey0JmQM",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceCoredump",
+      "exportCount": 1,
+      "gen4Count": 1,
+      "gen5Count": 1,
+      "exports": [
+        {
+          "name": "sceCoredumpRegisterCoredumpHandler",
+          "nid": "8zLSfEfW5AU",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceFiber",
+      "exportCount": 15,
+      "gen4Count": 15,
+      "gen5Count": 15,
+      "exports": [
+        {
+          "name": "_sceFiberAttachContextAndRun",
+          "nid": "avfGJ94g36Q",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceFiberAttachContextAndSwitch",
+          "nid": "ZqhZFuzKT6U",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceFiberGetThreadFramePointerAddress",
+          "nid": "0dy4JtMUcMQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceFiberInitializeImpl",
+          "nid": "hVYD7Ou2pCQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_sceFiberInitializeWithInternalOptionImpl",
+          "nid": "7\u002BOJIpko9RY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberFinalize",
+          "nid": "JeNX5F-NzQU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberGetInfo",
+          "nid": "uq2Y5BFz0PE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberGetSelf",
+          "nid": "p\u002BzLIOg27zU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberOptParamInitialize",
+          "nid": "asjUJJ\u002Baa8s",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberRename",
+          "nid": "JzyT91ucGDc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberReturnToThread",
+          "nid": "B0ZX2hx9DMw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberRun",
+          "nid": "a0LLrZWac0M",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberStartContextSizeCheck",
+          "nid": "Lcqty\u002BQNWFc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberStopContextSizeCheck",
+          "nid": "Kj4nXMpnM8Y",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceFiberSwitch",
+          "nid": "PFT2S-tJ7Uk",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceGameUpdate",
+      "exportCount": 1,
+      "gen4Count": 1,
+      "gen5Count": 1,
+      "exports": [
+        {
+          "name": "sceGameUpdateInitialize",
+          "nid": "YJtKLttI9fM",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceHttp",
+      "exportCount": 4,
+      "gen4Count": 4,
+      "gen5Count": 4,
+      "exports": [
+        {
+          "name": "sceHttpCreateTemplate",
+          "nid": "0gYjPTR-6cY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceHttpDeleteTemplate",
+          "nid": "4I8vEpuEhZ8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceHttpInit",
+          "nid": "A9cVMUtEp4Y",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceHttpTerm",
+          "nid": "Ik-KpLTlf7Q",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceHttp2",
+      "exportCount": 2,
+      "gen4Count": 2,
+      "gen5Count": 2,
+      "exports": [
+        {
+          "name": "sceHttp2Init",
+          "nid": "3JCe3lCbQ8A",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceHttp2Term",
+          "nid": "YiBUtz-pGkc",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceJson",
+      "exportCount": 5,
+      "gen4Count": 5,
+      "gen5Count": 5,
+      "exports": [
+        {
+          "name": "_ZN3sce4Json11Initializer10initializeEPKNS0_13InitParameterE",
+          "nid": "Cxwy7wHq4J0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_ZN3sce4Json11InitializerC1Ev",
+          "nid": "cK6bYHf-Q5E",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_ZN3sce4Json11InitializerD1Ev",
+          "nid": "RujUxbr3haM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_ZN3sce4Json12MemAllocatorC2Ev",
+          "nid": "-hJRce8wn1U",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "_ZN3sce4Json12MemAllocatorD2Ev",
+          "nid": "OcAgPxcq5Vk",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceKeyboard",
+      "exportCount": 4,
+      "gen4Count": 4,
+      "gen5Count": 4,
+      "exports": [
+        {
+          "name": "sceKeyboardClose",
+          "nid": "__hle_keyboard_close",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKeyboardInit",
+          "nid": "__hle_keyboard_init",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKeyboardOpen",
+          "nid": "__hle_keyboard_open",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceKeyboardReadState",
+          "nid": "__hle_keyboard_read_state",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceNet",
+      "exportCount": 7,
+      "gen4Count": 7,
+      "gen5Count": 7,
+      "exports": [
+        {
+          "name": "sceNetInit",
+          "nid": "Nlev7Lg8k3A",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetPoolCreate",
+          "nid": "dgJBaeJnGpo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetPoolDestroy",
+          "nid": "K7RlrTkI-mw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetResolverCreate",
+          "nid": "C4UgDHHPvdw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetResolverDestroy",
+          "nid": "kJlYH5uMAWI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetResolverGetError",
+          "nid": "J5i3hiLJMPk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetTerm",
+          "nid": "cTGkc6-TBlI",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceNetCtl",
+      "exportCount": 6,
+      "gen4Count": 6,
+      "gen5Count": 6,
+      "exports": [
+        {
+          "name": "sceNetCtlCheckCallback",
+          "nid": "iQw3iQPhvUQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetCtlGetInfo",
+          "nid": "obuxdTiwkF8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetCtlGetNatInfo",
+          "nid": "JO4yuTuMoKI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetCtlGetState",
+          "nid": "uBPlr0lbuiI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetCtlInit",
+          "nid": "gky0\u002BoaNM4k",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNetCtlRegisterCallback",
+          "nid": "UJ\u002BZ7Q\u002B4ck0",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceNpEntitlementAccess",
+      "exportCount": 1,
+      "gen4Count": 1,
+      "gen5Count": 1,
+      "exports": [
+        {
+          "name": "sceNpEntitlementAccessInitialize",
+          "nid": "jO8DM8oyego",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceNpGameIntent",
+      "exportCount": 1,
+      "gen4Count": 1,
+      "gen5Count": 1,
+      "exports": [
+        {
+          "name": "sceNpGameIntentInitialize",
+          "nid": "m87BHxt-H60",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceNpManager",
+      "exportCount": 6,
+      "gen4Count": 6,
+      "gen5Count": 6,
+      "exports": [
+        {
+          "name": "sceNpCheckCallback",
+          "nid": "3Zl8BePTh9Y",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNpCheckCallbackForLib",
+          "nid": "JELHf4xPufo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNpGetState",
+          "nid": "eQH7nWPcAgc",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNpRegisterStateCallback",
+          "nid": "VfRSmPmj8Q8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNpRegisterStateCallbackA",
+          "nid": "qQJfO8HAiaY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNpSetNpTitleId",
+          "nid": "Ec63y59l9tw",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceNpManagerForToolkit",
+      "exportCount": 1,
+      "gen4Count": 1,
+      "gen5Count": 1,
+      "exports": [
+        {
+          "name": "sceNpRegisterStateCallbackForToolkit",
+          "nid": "0c7HbXRKUt4",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceNpSessionSignaling",
+      "exportCount": 1,
+      "gen4Count": 1,
+      "gen5Count": 1,
+      "exports": [
+        {
+          "name": "sceNpSessionSignalingInitialize",
+          "nid": "ysmw6J-P8Ak",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceNpUniversalDataSystem",
+      "exportCount": 4,
+      "gen4Count": 4,
+      "gen5Count": 4,
+      "exports": [
+        {
+          "name": "sceNpUniversalDataSystemCreateContext",
+          "nid": "5zBnau1uIEo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNpUniversalDataSystemCreateHandle",
+          "nid": "hT0IAEvN\u002BM0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNpUniversalDataSystemInitialize",
+          "nid": "sjaobBgqeB4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNpUniversalDataSystemRegisterContext",
+          "nid": "tpFJ8LIKvPw",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceNpWebApi2",
+      "exportCount": 2,
+      "gen4Count": 2,
+      "gen5Count": 2,
+      "exports": [
+        {
+          "name": "sceNpWebApi2Initialize",
+          "nid": "\u002Bo9816YQhqQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceNpWebApi2Terminate",
+          "nid": "bEvXpcEk200",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libScePad",
+      "exportCount": 10,
+      "gen4Count": 10,
+      "gen5Count": 10,
+      "exports": [
+        {
+          "name": "scePadClose",
+          "nid": "__hle_pad_close",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePadGetControllerInformation",
+          "nid": "gjP9-KQzoUk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePadInit",
+          "nid": "hv1luiJrqQM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePadOpen",
+          "nid": "xk0AcarP3V4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePadRead",
+          "nid": "q1cHNfGycLI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePadReadState",
+          "nid": "YndgXqQVV7c",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePadSetLightBar",
+          "nid": "__hle_pad_light_bar",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePadSetMotionSensorState",
+          "nid": "clVvL4ZDntw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePadSetVibration",
+          "nid": "__hle_pad_vibration",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePadSetVibrationMode",
+          "nid": "__hle_pad_vibration_mode",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libScePlayGo",
+      "exportCount": 15,
+      "gen4Count": 15,
+      "gen5Count": 15,
+      "exports": [
+        {
+          "name": "scePlayGoClose",
+          "nid": "Uco1I0dlDi8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoGetChunkId",
+          "nid": "73fF1MFU8hA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoGetEta",
+          "nid": "v6EZ-YWRdMs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoGetInstallSpeed",
+          "nid": "rvBSfTimejE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoGetLanguageMask",
+          "nid": "3OMbYZBaa50",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoGetLocus",
+          "nid": "uWIYLFkkwqk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoGetProgress",
+          "nid": "-RJWNMK3fC8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoGetToDoList",
+          "nid": "Nn7zKwnA5q0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoInitialize",
+          "nid": "ts6GlZOKRrE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoOpen",
+          "nid": "M1Gma1ocrGE",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoPrefetch",
+          "nid": "-Q1-u1a7p0g",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoSetInstallSpeed",
+          "nid": "4AAcTU9R3XM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoSetLanguageMask",
+          "nid": "LosLlHOpNqQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoSetToDoList",
+          "nid": "gUPGiOQ1tmQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "scePlayGoTerminate",
+          "nid": "MPe0EeBGM-E",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libScePosix",
+      "exportCount": 1,
+      "gen4Count": 1,
+      "gen5Count": 1,
+      "exports": [
+        {
+          "name": "pthread_exit",
+          "nid": "FJrT5LuUBAU",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceRtc",
+      "exportCount": 4,
+      "gen4Count": 4,
+      "gen5Count": 4,
+      "exports": [
+        {
+          "name": "sceRtcGetCurrentClockLocalTime",
+          "nid": "ZPD1YOKI\u002BKw",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceRtcGetCurrentTick",
+          "nid": "18B2NS1y9UU",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceRtcGetTick",
+          "nid": "8w-H19ip48I",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceRtcSetTick",
+          "nid": "ueega6v3GUw",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceSaveData",
+      "exportCount": 2,
+      "gen4Count": 2,
+      "gen5Count": 2,
+      "exports": [
+        {
+          "name": "sceSaveDataDirNameSearch",
+          "nid": "dyIhnXq-0SM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSaveDataInitialize3",
+          "nid": "TywrFKCoLGY",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceShareUtility",
+      "exportCount": 2,
+      "gen4Count": 2,
+      "gen5Count": 2,
+      "exports": [
+        {
+          "name": "sceShareInitialize",
+          "nid": "nBDD66kiFW8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceShareSetContentParam",
+          "nid": "7QZtURYnXG4",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceSsl",
+      "exportCount": 3,
+      "gen4Count": 3,
+      "gen5Count": 3,
+      "exports": [
+        {
+          "name": "sceSslClose",
+          "nid": "viRXSHZYd0c",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSslInit",
+          "nid": "hdpVEUDFW3s",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSslTerm",
+          "nid": "0K1yQ6Lv-Yc",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceSysmodule",
+      "exportCount": 4,
+      "gen4Count": 4,
+      "gen5Count": 4,
+      "exports": [
+        {
+          "name": "sceSysmoduleIsLoaded",
+          "nid": "fMP5NHUOaMk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSysmoduleLoadModule",
+          "nid": "g8cM39EUZ6o",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSysmoduleLoadModuleInternalWithArg",
+          "nid": "hHrGoGoNf\u002Bs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSysmoduleUnloadModule",
+          "nid": "eR2bZFAAU0Q",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceSystemGesture",
+      "exportCount": 6,
+      "gen4Count": 6,
+      "gen5Count": 6,
+      "exports": [
+        {
+          "name": "sceSystemGestureCreateTouchRecognizer",
+          "nid": "FWF8zkhr854",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSystemGestureGetTouchEventsCount",
+          "nid": "h8uongcBNVs",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSystemGestureInitializePrimitiveTouchRecognizer",
+          "nid": "3pcAvmwKCvM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSystemGestureOpen",
+          "nid": "qpo-mEOwje0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSystemGestureUpdatePrimitiveTouchRecognizer",
+          "nid": "GgFMb22sbbI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSystemGestureUpdateTouchRecognizer",
+          "nid": "j4h82CQWENo",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceSystemService",
+      "exportCount": 4,
+      "gen4Count": 4,
+      "gen5Count": 4,
+      "exports": [
+        {
+          "name": "sceSystemServiceGetDisplaySafeAreaInfo",
+          "nid": "1n37q1Bvc5Y",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSystemServiceGetStatus",
+          "nid": "rPo6tV8D9bM",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSystemServiceHideSplashScreen",
+          "nid": "Vo5V8KAwCmk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceSystemServiceParamGetInt",
+          "nid": "fZo48un7LK4",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceUserService",
+      "exportCount": 7,
+      "gen4Count": 7,
+      "gen5Count": 7,
+      "exports": [
+        {
+          "name": "sceUserServiceGetEvent",
+          "nid": "yH17Q6NWtVg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceUserServiceGetForegroundUser",
+          "nid": "__hle_foreground_user",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceUserServiceGetInitialUser",
+          "nid": "CdWp0oHWGr0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceUserServiceGetLoginUserIdList",
+          "nid": "fPhymKNvK-A",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceUserServiceGetPlatformPrivacySetting",
+          "nid": "D-CzAxQL0XI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceUserServiceGetUserName",
+          "nid": "1xxcMiGu2fo",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceUserServiceInitialize",
+          "nid": "j3YMu1MVNNo",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    },
+    {
+      "module": "libSceVideoOut",
+      "exportCount": 18,
+      "gen4Count": 18,
+      "gen5Count": 18,
+      "exports": [
+        {
+          "name": "sceVideoOutAddFlipEvent",
+          "nid": "HXzjK9yI30k",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutAdjustColor_",
+          "nid": "pv9CI5VC\u002BR0",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutClose",
+          "nid": "uquVH4-Du78",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutColorSettingsSetGamma_",
+          "nid": "DYhhWbJSeRg",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutGetEventData",
+          "nid": "rWUTcKdkUzQ",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutGetEventId",
+          "nid": "U2JJtSqNKZI",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutGetOutputStatus",
+          "nid": "utPrVdxio-8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutIsFlipPending",
+          "nid": "zgXifHT9ErY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutOpen",
+          "nid": "Up36PTk687E",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutRegisterBuffers",
+          "nid": "w3BY\u002BtAEiQY",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutRegisterBuffers2",
+          "nid": "rKBUtgRrtbk",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutSetBufferAttribute",
+          "nid": "i6-sR91Wt-4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutSetBufferAttribute2",
+          "nid": "PjS5uASwcV8",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutSetFlipRate",
+          "nid": "CBiu4mCE1DA",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutSetWindowModeMargins",
+          "nid": "MTxxrOCeSig",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutSubmitFlip",
+          "nid": "U46NwOiJpys",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutUnregisterBuffers",
+          "nid": "N5KDtkIjjJ4",
+          "target": "Gen4, Gen5"
+        },
+        {
+          "name": "sceVideoOutWaitVblank",
+          "nid": "j6RaAUlaLv0",
+          "target": "Gen4, Gen5"
+        }
+      ]
+    }
+  ]
+}

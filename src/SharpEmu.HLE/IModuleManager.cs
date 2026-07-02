@@ -1,6 +1,7 @@
 // Copyright (C) 2026 SharpEmu Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+using System.Collections.Generic;
 using System.Reflection;
 
 namespace SharpEmu.HLE;
@@ -16,6 +17,8 @@ public interface IModuleManager
     bool TryGetExport(string nid, out ExportedFunction export);
 
     bool TryGetExportByName(string exportName, out ExportedFunction export);
+
+    IReadOnlyList<ExportedFunction> GetRegisteredExports();
 
     bool TryDispatch(string nid, CpuContext context, out OrbisGen2Result result);
 
