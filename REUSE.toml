@@ -10,7 +10,9 @@ path = [
     "_logs/**",
     ".github/images/**",
     "docs/hle-exports.md",
-    "docs/hle-exports.json"
+    "docs/hle-exports.json",
+    "docs/kernel-hle-status.md",
+    "docs/kernel-hle-status.json"
 ]
 precedence = "aggregate"
 SPDX-FileCopyrightText = "SharpEmu Emulator Project"

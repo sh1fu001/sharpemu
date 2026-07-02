@@ -1,0 +1,1693 @@
+{
+  "totalExports": 223,
+  "curatedCount": 85,
+  "areas": [
+    {
+      "priority": 1,
+      "area": "Thread lifecycle (pthread)",
+      "exportCount": 52,
+      "severityCounts": {
+        "BLOCKER": 4,
+        "CRITICAL": 10,
+        "VISIBLE": 0,
+        "COSMETIC": 6,
+        "UNKNOWN": 32
+      },
+      "exports": [
+        {
+          "name": "__tls_get_addr",
+          "nid": "vNe1w4diLCs",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Thread-local storage base, touched extremely early."
+        },
+        {
+          "name": "pthread_create",
+          "nid": "OxhIB8LB-PQ",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "POSIX thread creation used by the C\u002B\u002B runtime."
+        },
+        {
+          "name": "pthread_create_name_np",
+          "nid": "Jmi\u002B9w9u0E4",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Named thread creation used during init."
+        },
+        {
+          "name": "scePthreadCreate",
+          "nid": "6UgtwV\u002B0zb4",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Guest worker threads never start without it."
+        },
+        {
+          "name": "pthread_join",
+          "nid": "h9CcP3J0oVM",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "A wrong join blocks the joining thread forever."
+        },
+        {
+          "name": "pthread_once",
+          "nid": "__hle_pthread_once",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "One-time init guard; double-run corrupts state."
+        },
+        {
+          "name": "pthread_self",
+          "nid": "EotR8a3ASf4",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Identity used by locks and TLS."
+        },
+        {
+          "name": "scePthreadExit",
+          "nid": "3kg7rT0NQIs",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Thread teardown; leaks or hangs if mismodelled."
+        },
+        {
+          "name": "scePthreadGetspecific",
+          "nid": "eoht7mQOCmo",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "TLS slot read."
+        },
+        {
+          "name": "scePthreadJoin",
+          "nid": "onNY9Byn-W8",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "A wrong join blocks the joining thread forever."
+        },
+        {
+          "name": "scePthreadKeyCreate",
+          "nid": "geDaqgH9lTg",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "TLS key allocation."
+        },
+        {
+          "name": "scePthreadOnce",
+          "nid": "14bOACANTBo",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "One-time init guard; double-run corrupts state."
+        },
+        {
+          "name": "scePthreadSelf",
+          "nid": "aI\u002BOeCz8xrQ",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Identity used by locks and TLS."
+        },
+        {
+          "name": "scePthreadSetspecific",
+          "nid": "\u002BBzXYkqYeLE",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "TLS slot write."
+        },
+        {
+          "name": "scePthreadGetaffinity",
+          "nid": "rcrVFJsQWRY",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Core affinity hint; safe to approximate."
+        },
+        {
+          "name": "scePthreadGetname",
+          "nid": "How7B8Oet6k",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Debug thread name."
+        },
+        {
+          "name": "scePthreadGetprio",
+          "nid": "1tKyG7RlMJo",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Scheduling hint; safe to approximate."
+        },
+        {
+          "name": "scePthreadSetaffinity",
+          "nid": "bt3CTBKmGyI",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Core affinity hint; safe to ignore."
+        },
+        {
+          "name": "scePthreadSetprio",
+          "nid": "W0Hpm2X0uPE",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Scheduling hint; safe to approximate."
+        },
+        {
+          "name": "scePthreadYield",
+          "nid": "T72hz6ffq08",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Scheduling hint."
+        },
+        {
+          "name": "__pthread_cxa_finalize",
+          "nid": "kbw4UHHSYy0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_sceKernelRtldThreadAtexitDecrement",
+          "nid": "8OnWXlgQlvo",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_sceKernelRtldThreadAtexitIncrement",
+          "nid": "Tz4RNUCBbGI",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_sceKernelSetThreadAtexitCount",
+          "nid": "pB-yGZ2nQ9o",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_sceKernelSetThreadAtexitReport",
+          "nid": "WhCc1w3EhSI",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_sceKernelSetThreadDtors",
+          "nid": "rNhWz\u002BlvOMU",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_attr_destroy",
+          "nid": "zHchY8ft5pk",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_attr_init",
+          "nid": "wtkt-teR1so",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_attr_setdetachstate",
+          "nid": "__hle_attr_detach",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_attr_setstacksize",
+          "nid": "2Q0z6rnBrTE",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_getspecific",
+          "nid": "0-KXaS70xy4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_getthreadid_np",
+          "nid": "3eqs37G74-s",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_key_create",
+          "nid": "mqULNdimTn0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_key_delete",
+          "nid": "6BpEZuDT7YI",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_setspecific",
+          "nid": "WrOLvHU0yQM",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrDestroy",
+          "nid": "62KCwEMmzcM",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrGet",
+          "nid": "x1X76arYMxU",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrGetaffinity",
+          "nid": "8\u002Bs5BzZjxSg",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrGetdetachstate",
+          "nid": "JaRMy\u002BQcpeU",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrGetguardsize",
+          "nid": "txHtngJ\u002Beyc",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrGetstack",
+          "nid": "-quPa4SEJUw",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrGetstackaddr",
+          "nid": "Ru36fiTtJzA",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrGetstacksize",
+          "nid": "-fA\u002B7ZlGDQs",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrInit",
+          "nid": "nsYoNRywwNg",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrSetaffinity",
+          "nid": "3qxgM4ezETA",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrSetdetachstate",
+          "nid": "-Wreprtu0Qs",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrSetguardsize",
+          "nid": "El\u002BcQ20DynU",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrSetstacksize",
+          "nid": "UTXzJbWhhTE",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadDetach",
+          "nid": "4qGrR6eoP9Y",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadEqual",
+          "nid": "3PtV6p3QNX4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadGetthreadid",
+          "nid": "EI-5-jlq2dE",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadKeyDelete",
+          "nid": "PrdHuuDekhY",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        }
+      ]
+    },
+    {
+      "priority": 2,
+      "area": "Synchronization (mutex / condvar / semaphore)",
+      "exportCount": 53,
+      "severityCounts": {
+        "BLOCKER": 2,
+        "CRITICAL": 21,
+        "VISIBLE": 0,
+        "COSMETIC": 0,
+        "UNKNOWN": 30
+      },
+      "exports": [
+        {
+          "name": "pthread_mutex_init",
+          "nid": "ttHNfU\u002BqDBU",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Mutexes are created pervasively during init."
+        },
+        {
+          "name": "scePthreadMutexInit",
+          "nid": "cmo1RIYva9o",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Mutexes are created pervasively during init."
+        },
+        {
+          "name": "pthread_cond_broadcast",
+          "nid": "mkx2fVhNMsg",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "A dropped broadcast deadlocks waiters."
+        },
+        {
+          "name": "pthread_cond_signal",
+          "nid": "2MOy\u002BrUfuhQ",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "A dropped signal deadlocks the waiter."
+        },
+        {
+          "name": "pthread_cond_wait",
+          "nid": "Op8TBGY5KHg",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Missed wake-ups deadlock the waiter."
+        },
+        {
+          "name": "pthread_mutex_lock",
+          "nid": "7H0iTOciTLo",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Incorrect locking deadlocks the guest."
+        },
+        {
+          "name": "pthread_mutex_trylock",
+          "nid": "K-jXhbt2gn4",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Wrong result spins or deadlocks."
+        },
+        {
+          "name": "pthread_mutex_unlock",
+          "nid": "2Z\u002BPpY6CaJg",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Missing unlock deadlocks waiters."
+        },
+        {
+          "name": "sceKernelCreateSema",
+          "nid": "188x57JYp0g",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Semaphore object creation."
+        },
+        {
+          "name": "sceKernelPollSema",
+          "nid": "12wOHk8ywb0",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Non-blocking acquire; wrong result mis-sequences."
+        },
+        {
+          "name": "sceKernelSignalSema",
+          "nid": "4czppHBiriw",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Missing signal deadlocks waiters."
+        },
+        {
+          "name": "sceKernelWaitSema",
+          "nid": "Zxa0VhQVTsk",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Blocking wait; wrong count deadlocks."
+        },
+        {
+          "name": "scePthreadCondBroadcast",
+          "nid": "JGgj7Uvrl\u002BA",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "A dropped broadcast deadlocks waiters."
+        },
+        {
+          "name": "scePthreadCondInit",
+          "nid": "2Tb92quprl0",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Condition variable setup."
+        },
+        {
+          "name": "scePthreadCondSignal",
+          "nid": "kDh-NfxgMtE",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "A dropped signal deadlocks the waiter."
+        },
+        {
+          "name": "scePthreadCondTimedwait",
+          "nid": "BmMjYxmew1w",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Missed wake-ups / bad timeout deadlock or busy-loop."
+        },
+        {
+          "name": "scePthreadCondWait",
+          "nid": "WKAXJ4XBPQ4",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Missed wake-ups deadlock the waiter."
+        },
+        {
+          "name": "scePthreadMutexLock",
+          "nid": "9UK1vLZQft4",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Incorrect locking deadlocks the guest."
+        },
+        {
+          "name": "scePthreadMutexTrylock",
+          "nid": "upoVrzMHFeE",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Wrong result spins or deadlocks."
+        },
+        {
+          "name": "scePthreadMutexUnlock",
+          "nid": "tn3VlD0hG60",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Missing unlock deadlocks waiters."
+        },
+        {
+          "name": "sem_init",
+          "nid": "__hle_sem_init",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "POSIX semaphore creation."
+        },
+        {
+          "name": "sem_post",
+          "nid": "__hle_sem_post",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Missing post deadlocks waiters."
+        },
+        {
+          "name": "sem_wait",
+          "nid": "__hle_sem_wait",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Blocking wait; wrong count deadlocks."
+        },
+        {
+          "name": "pthread_cond_init",
+          "nid": "0TyVk4MSLt0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_mutex_destroy",
+          "nid": "ltCfaGr2JGE",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_mutexattr_destroy",
+          "nid": "HF7lK46xzjY",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_mutexattr_init",
+          "nid": "dQHWEsJtoE4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_mutexattr_setprotocol",
+          "nid": "5txKfcMUAok",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_mutexattr_settype",
+          "nid": "mDmgMOGVUqg",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_rwlock_destroy",
+          "nid": "1471ajPzxh0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_rwlock_init",
+          "nid": "ytQULN-nhL4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_rwlock_rdlock",
+          "nid": "iGjsr1WAtI0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_rwlock_unlock",
+          "nid": "EgmLo6EWgso",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "pthread_rwlock_wrlock",
+          "nid": "sIlRvQqsN2Y",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelCancelSema",
+          "nid": "4DM06U2BNEY",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelDeleteSema",
+          "nid": "R1Jvn8bSCW8",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadCondDestroy",
+          "nid": "g\u002BPZd2hiacg",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadCondattrDestroy",
+          "nid": "waPcxYiR3WA",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadCondattrInit",
+          "nid": "m5-2bsNfv7s",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadMutexDestroy",
+          "nid": "2Of0f\u002B3mhhE",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadMutexattrDestroy",
+          "nid": "smWEktiyyG0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadMutexattrInit",
+          "nid": "F8bUHwAG284",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadMutexattrSetprotocol",
+          "nid": "1FGvU0i9saQ",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadMutexattrSettype",
+          "nid": "iMp8QpE\u002BXO4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadRwlockDestroy",
+          "nid": "BB\u002Bkb08Tl9A",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadRwlockInit",
+          "nid": "6ULAa0fq4jA",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadRwlockRdlock",
+          "nid": "Ox9i0c7L5w0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadRwlockUnlock",
+          "nid": "\u002BL98PIbGttk",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadRwlockWrlock",
+          "nid": "mqdNorrB\u002BgI",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sem_destroy",
+          "nid": "__hle_sem_destroy",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sem_getvalue",
+          "nid": "__hle_sem_getvalue",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sem_timedwait",
+          "nid": "__hle_sem_timedwait",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sem_trywait",
+          "nid": "__hle_sem_trywait",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        }
+      ]
+    },
+    {
+      "priority": 3,
+      "area": "Event queue \u0026 events",
+      "exportCount": 23,
+      "severityCounts": {
+        "BLOCKER": 0,
+        "CRITICAL": 7,
+        "VISIBLE": 2,
+        "COSMETIC": 1,
+        "UNKNOWN": 13
+      },
+      "exports": [
+        {
+          "name": "sceKernelCreateEqueue",
+          "nid": "D0OdFMjp46I",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Event queue used for flips, timers and I/O."
+        },
+        {
+          "name": "sceKernelCreateEventFlag",
+          "nid": "BpFoboUJoZU",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Event-flag object creation."
+        },
+        {
+          "name": "sceKernelGetEventData",
+          "nid": "kwGyyjohI50",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Event payload read after a wait."
+        },
+        {
+          "name": "sceKernelGetEventId",
+          "nid": "mJ7aghmgvfc",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Event identity read after a wait."
+        },
+        {
+          "name": "sceKernelSetEventFlag",
+          "nid": "IOnSvHzqu6A",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Missing set deadlocks waiters."
+        },
+        {
+          "name": "sceKernelWaitEqueue",
+          "nid": "fzyMKs9kim0",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Blocking wait; dropped events deadlock."
+        },
+        {
+          "name": "sceKernelWaitEventFlag",
+          "nid": "JTvBflhYazQ",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Blocking wait; wrong bits deadlock."
+        },
+        {
+          "name": "sceKernelAddUserEvent",
+          "nid": "4R6-OvI2cEA",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "User events drive frame/timer callbacks."
+        },
+        {
+          "name": "sceKernelTriggerUserEvent",
+          "nid": "F6e0kwo4cnk",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "Missing triggers stall dependent work."
+        },
+        {
+          "name": "sceKernelDeleteEqueue",
+          "nid": "jpFjmgAC5AE",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Teardown."
+        },
+        {
+          "name": "sceKernelAddAmprEvent",
+          "nid": "bBfz7kMF2Ho",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAddAmprSystemEvent",
+          "nid": "vuae5JPNt9A",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAddUserEventEdge",
+          "nid": "WDszmSbWuDk",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelCancelEventFlag",
+          "nid": "PZku4ZrXJqg",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelClearEventFlag",
+          "nid": "7uhBFWRAS60",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelDeleteAmprEvent",
+          "nid": "bMmid3pfyjo",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelDeleteAmprSystemEvent",
+          "nid": "Ij\u002BryuEClXQ",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelDeleteEventFlag",
+          "nid": "8mql9OcQnd4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelDeleteUserEvent",
+          "nid": "LJDwdSNTnDg",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetEventFilter",
+          "nid": "23CPPI1tyBY",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetEventUserData",
+          "nid": "vz\u002Bpg2zdopI",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetKqueueFromEqueue",
+          "nid": "QyrxcdBrb0M",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelPollEventFlag",
+          "nid": "9lvj5DjHZiA",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        }
+      ]
+    },
+    {
+      "priority": 4,
+      "area": "Memory mapping",
+      "exportCount": 20,
+      "severityCounts": {
+        "BLOCKER": 6,
+        "CRITICAL": 2,
+        "VISIBLE": 2,
+        "COSMETIC": 0,
+        "UNKNOWN": 10
+      },
+      "exports": [
+        {
+          "name": "sceKernelAllocateDirectMemory",
+          "nid": "rTXw65xmLIA",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Physical memory pool the title maps from."
+        },
+        {
+          "name": "sceKernelAllocateMainDirectMemory",
+          "nid": "B\u002Bvc2AO2Zrc",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Main direct-memory pool allocation."
+        },
+        {
+          "name": "sceKernelMapDirectMemory",
+          "nid": "L-Q3LEjIbgA",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Maps direct memory into the address space."
+        },
+        {
+          "name": "sceKernelMapFlexibleMemory",
+          "nid": "IWIBBdTHit4",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Flexible (CPU) memory used for the guest heap."
+        },
+        {
+          "name": "sceKernelMapNamedDirectMemory",
+          "nid": "NcaWUxfMNIQ",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Maps named direct memory into the address space."
+        },
+        {
+          "name": "sceKernelMapNamedFlexibleMemory",
+          "nid": "mL8NDH86iQI",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Named flexible memory used for the guest heap."
+        },
+        {
+          "name": "sceKernelMprotect",
+          "nid": "vSMAm3cxYTY",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Protection change; wrong perms fault later."
+        },
+        {
+          "name": "sceKernelMunmap",
+          "nid": "cQke9UuBQOk",
+          "severity": "CRITICAL",
+          "curated": true,
+          "note": "Unmap; a wrong unmap frees live memory."
+        },
+        {
+          "name": "sceKernelQueryMemoryProtection",
+          "nid": "WFcfL2lzido",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "Introspection used by allocators."
+        },
+        {
+          "name": "sceKernelVirtualQuery",
+          "nid": "rVjRvHJ0X6c",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "Introspection used by allocators."
+        },
+        {
+          "name": "sceKernelAvailableDirectMemorySize",
+          "nid": "C0f7TJcbfac",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAvailableFlexibleMemorySize",
+          "nid": "aNz11fnnzi4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelBatchMap",
+          "nid": "2SKEx6bSq-4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelBatchMap2",
+          "nid": "kBJzF8x4SyE",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelDirectMemoryQuery",
+          "nid": "BHouLQzh0X0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetDirectMemorySize",
+          "nid": "pO96TwzOm5E",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelMtypeprotect",
+          "nid": "9bfdLIyuwCY",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelReleaseDirectMemory",
+          "nid": "MBuItvba6z8",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelReserveVirtualRange",
+          "nid": "7oxv3PPCumo",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelSetPrtAperture",
+          "nid": "BohYr-F7-is",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        }
+      ]
+    },
+    {
+      "priority": 5,
+      "area": "Module loading",
+      "exportCount": 10,
+      "severityCounts": {
+        "BLOCKER": 1,
+        "CRITICAL": 0,
+        "VISIBLE": 0,
+        "COSMETIC": 3,
+        "UNKNOWN": 6
+      },
+      "exports": [
+        {
+          "name": "sceKernelLoadStartModule",
+          "nid": "wzvqT4UqKX8",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Loads and starts the .prx modules the title needs."
+        },
+        {
+          "name": "sceKernelGetModuleInfo",
+          "nid": "kUpgrXIrz7Q",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Introspection; often only used for logging/unwind."
+        },
+        {
+          "name": "sceKernelGetModuleList",
+          "nid": "IuxnUuXk6Bg",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Introspection; often only used for logging/unwind."
+        },
+        {
+          "name": "sceKernelStopUnloadModule",
+          "nid": "QKd0qM58Qes",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Module teardown."
+        },
+        {
+          "name": "__elf_phdr_match_addr",
+          "nid": "Fjc4-n1\u002By2g",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetModuleInfo2",
+          "nid": "QgsKEUfkqMA",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetModuleInfoForUnwind",
+          "nid": "RpQJJVKTiFM",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetModuleInfoFromAddr",
+          "nid": "f7KBOafysXo",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetModuleInfoInternal",
+          "nid": "HZO7xOos4xc",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetModuleList2",
+          "nid": "ZzzC3ZGVAkc",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        }
+      ]
+    },
+    {
+      "priority": 6,
+      "area": "File descriptors",
+      "exportCount": 21,
+      "severityCounts": {
+        "BLOCKER": 0,
+        "CRITICAL": 0,
+        "VISIBLE": 4,
+        "COSMETIC": 4,
+        "UNKNOWN": 13
+      },
+      "exports": [
+        {
+          "name": "open",
+          "nid": "wuCroIGjt2g",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "File open; missing assets degrade content."
+        },
+        {
+          "name": "read",
+          "nid": "AqBioC2vF3I",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "File read."
+        },
+        {
+          "name": "sceKernelOpen",
+          "nid": "1G3lF1Gg1k8",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "File open; missing assets degrade content."
+        },
+        {
+          "name": "sceKernelRead",
+          "nid": "Cg4srZ6TKbU",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "File read."
+        },
+        {
+          "name": "close",
+          "nid": "bY-PO6JhzhQ",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Descriptor teardown."
+        },
+        {
+          "name": "sceKernelClose",
+          "nid": "UK2Tl2DWUns",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "Descriptor teardown."
+        },
+        {
+          "name": "sceKernelWrite",
+          "nid": "4wSze92BhLI",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "File write; often logs/saves."
+        },
+        {
+          "name": "write",
+          "nid": "FN4gaPmuFV8",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "File write; often logs/saves."
+        },
+        {
+          "name": "_close",
+          "nid": "NNtFaKJbPt0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_open",
+          "nid": "6c3rCVE-fTU",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_read",
+          "nid": "DRuBt2pvICk",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_write",
+          "nid": "FxVZqBAA7ks",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "lseek",
+          "nid": "Oy6IpwgtYOk",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelFstat",
+          "nid": "kBwCPsYX-m4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetdents",
+          "nid": "j2AIqSqJP0w",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetdirentries",
+          "nid": "taRWhTJFTgE",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelLseek",
+          "nid": "oib76F-12fk",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelMkdir",
+          "nid": "1-LFLmRFxxM",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelRmdir",
+          "nid": "naInUjYt3so",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelStat",
+          "nid": "eV9wAD2riIA",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelUnlink",
+          "nid": "AUXVxWeJU-A",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        }
+      ]
+    },
+    {
+      "priority": 7,
+      "area": "Time / clock / sleep",
+      "exportCount": 16,
+      "severityCounts": {
+        "BLOCKER": 0,
+        "CRITICAL": 0,
+        "VISIBLE": 7,
+        "COSMETIC": 0,
+        "UNKNOWN": 9
+      },
+      "exports": [
+        {
+          "name": "clock_gettime",
+          "nid": "lLMT9vJAck0",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "Monotonic/real clock; drives animation timing."
+        },
+        {
+          "name": "gettimeofday",
+          "nid": "n88vx3C5nW8",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "Wall clock; drives timing."
+        },
+        {
+          "name": "sceKernelClockGettime",
+          "nid": "QBi7HCK03hw",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "Monotonic/real clock; drives animation timing."
+        },
+        {
+          "name": "sceKernelGetProcessTimeCounter",
+          "nid": "fgxnMeTNUtY",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "High-resolution counter; pacing."
+        },
+        {
+          "name": "sceKernelGettimeofday",
+          "nid": "ejekcaNQNq0",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "Wall clock; drives timing."
+        },
+        {
+          "name": "sceKernelReadTsc",
+          "nid": "-2IRUCO--PM",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "Cycle counter; pacing."
+        },
+        {
+          "name": "sceKernelUsleep",
+          "nid": "1jfXLRVzisc",
+          "severity": "VISIBLE",
+          "curated": true,
+          "note": "Sleep pacing; wrong values stutter or busy-loop."
+        },
+        {
+          "name": "pthread_setschedparam",
+          "nid": "Xs9hdiD7sAA",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelConvertLocaltimeToUtc",
+          "nid": "0NTHN1NKONI",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelConvertUtcToLocaltime",
+          "nid": "-o5uEDpN\u002BoY",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetProcessTime",
+          "nid": "4J2sUJmuHZQ",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetProcessTimeCounterFrequency",
+          "nid": "BNowx2l588E",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetTscFrequency",
+          "nid": "1j3S3n-tTW4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrSetinheritsched",
+          "nid": "eXbUSpEaTsA",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrSetschedparam",
+          "nid": "DzES9hQF4f4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "scePthreadAttrSetschedpolicy",
+          "nid": "4\u002Bh9EzwKF4I",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        }
+      ]
+    },
+    {
+      "priority": 8,
+      "area": "Process params",
+      "exportCount": 8,
+      "severityCounts": {
+        "BLOCKER": 1,
+        "CRITICAL": 0,
+        "VISIBLE": 0,
+        "COSMETIC": 2,
+        "UNKNOWN": 5
+      },
+      "exports": [
+        {
+          "name": "sceKernelGetProcParam",
+          "nid": "959qrazPIrg",
+          "severity": "BLOCKER",
+          "curated": true,
+          "note": "Process parameters read during early runtime init."
+        },
+        {
+          "name": "sceKernelGetCompiledSdkVersion",
+          "nid": "WB66evu8bsU",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "SDK version gate; usually just compared."
+        },
+        {
+          "name": "sceKernelIsNeoMode",
+          "nid": "WslcK1FQcGI",
+          "severity": "COSMETIC",
+          "curated": true,
+          "note": "PS4 Pro / Neo mode query."
+        },
+        {
+          "name": "_sceKernelRtldSetApplicationHeapAPI",
+          "nid": "p5EcQeEeJAE",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "getargc",
+          "nid": "__hle_getargc",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "getargv",
+          "nid": "__hle_getargv",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetGPI",
+          "nid": "4oXYe9Xmk0Q",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelSetGPO",
+          "nid": "ca7v6Cxulzs",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        }
+      ]
+    },
+    {
+      "priority": 0,
+      "area": "Other / not yet categorized",
+      "exportCount": 20,
+      "severityCounts": {
+        "BLOCKER": 0,
+        "CRITICAL": 0,
+        "VISIBLE": 0,
+        "COSMETIC": 0,
+        "UNKNOWN": 20
+      },
+      "exports": [
+        {
+          "name": "__error",
+          "nid": "9BcDykPmo1I",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "__stack_chk_fail",
+          "nid": "Ou3iL1abvng",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "__stack_chk_guard",
+          "nid": "f7uOxY9mM1U",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_exit",
+          "nid": "6Z83sYWFlA8",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "_sigprocmask",
+          "nid": "6xVpy0Fdq\u002BI",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "exit",
+          "nid": "uMei1W9uyNo",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAioInitializeImpl",
+          "nid": "vYU8P9Td2Zo",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAioInitializeParam",
+          "nid": "nu4a0-arQis",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAprResolveFilepathsToIdsAndFileSizes",
+          "nid": "gEpBkcwxUjw",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAprSubmitCommandBuffer",
+          "nid": "eE4Szl8sil8",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAprSubmitCommandBufferAndGetId",
+          "nid": "qvMUCyyaCSI",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAprSubmitCommandBufferAndGetResult",
+          "nid": "ASoW5WE-UPo",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelAprWaitCommandBuffer",
+          "nid": "rqwFKI4PAiM",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelDebugRaiseException",
+          "nid": "OMDRKKAZ8I4",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelDebugRaiseExceptionOnReleaseMode",
+          "nid": "zE-wXIZjLoM",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelExitSblock",
+          "nid": "Ac86z8q7T8A",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetSanitizerMallocReplaceExternal",
+          "nid": "py6L8jiVAN8",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelGetSanitizerNewReplaceExternal",
+          "nid": "bnZxYgAFeA0",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelIsAddressSanitizerEnabled",
+          "nid": "jh\u002B8XiK4LeE",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        },
+        {
+          "name": "sceKernelUuidCreate",
+          "nid": "Xjoosiw\u002BXPI",
+          "severity": "UNKNOWN",
+          "curated": false,
+          "note": "Not yet triaged."
+        }
+      ]
+    }
+  ]
+}

@@ -299,7 +299,24 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
                 ? $", rip_stub={faultStubNid}"
                 : string.Empty;
 
+            var access = faultInfo.Access.IsWrite ? MemoryAccessKind.Write : MemoryAccessKind.Read;
+            MemoryRegionInfo? faultRegion =
+                _virtualMemory.TryDescribe(faultInfo.Access.Address, out var regionInfo) ? regionInfo : null;
+            var reason = faultRegion is null ? MemoryViolationReason.Unmapped : MemoryViolationReason.ProtectionDenied;
+            var moduleName = KernelModuleRegistry.TryGetModuleByAddress(faultInfo.InstructionPointer, out var faultModule)
+                ? faultModule.Name
+                : null;
+            var violation = new MemoryAccessViolation(
+                faultInfo.Access.Address,
+                access,
+                (ulong)faultInfo.Access.Size,
+                reason,
+                faultRegion,
+                moduleName,
+                faultInfo.InstructionPointer);
+
             LastExecutionDiagnostics =
+                violation.Format() + "\n" +
                 $"Memory fault at RIP=0x{faultInfo.InstructionPointer:X16}, opcode={opcodeText}{decodedFaultText}, {accessType}@0x{faultInfo.Access.Address:X16} size={faultInfo.Access.Size}, import_stubs={activeImportStubs.Count}{ripStubText}{transferText}";
         }
         else if (result == OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_IMPLEMENTED && _cpuDispatcher.LastNotImplementedInfo is { } notImplementedInfo)

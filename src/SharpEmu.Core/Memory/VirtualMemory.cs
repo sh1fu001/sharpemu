@@ -76,6 +76,39 @@ public sealed class VirtualMemory : IVirtualMemory
         }
     }
 
+    public bool TryDescribe(ulong virtualAddress, out MemoryRegionInfo info)
+    {
+        lock (_gate)
+        {
+            var lo = 0;
+            var hi = _regions.Count - 1;
+            var found = -1;
+            while (lo <= hi)
+            {
+                var mid = lo + ((hi - lo) >> 1);
+                if (_regions[mid].Region.VirtualAddress <= virtualAddress)
+                {
+                    found = mid;
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid - 1;
+                }
+            }
+
+            if (found >= 0 && virtualAddress < _regions[found].EndAddress)
+            {
+                var region = _regions[found].Region;
+                info = new MemoryRegionInfo(region.VirtualAddress, region.MemorySize, region.Protection);
+                return true;
+            }
+
+            info = default;
+            return false;
+        }
+    }
+
     public bool TryRead(ulong virtualAddress, Span<byte> destination)
     {
         lock (_gate)

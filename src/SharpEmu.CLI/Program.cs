@@ -35,6 +35,11 @@ internal static partial class Program
             return exportReportExit;
         }
 
+        if (TryHandleKernelStatus(args, out var kernelStatusExit))
+        {
+            return kernelStatusExit;
+        }
+
         if (!isMitigatedChild && TryRunMitigatedChild(args, out var childExitCode))
         {
             return childExitCode;
@@ -433,7 +438,8 @@ internal static partial class Program
     private static void PrintUsage()
     {
         Log.Info("Usage: SharpEmu.CLI [--strict] [--trace-imports[=N]] [--cpu-engine=<native>] [--log-level=<level>] [--no-diagnostics] <path-to-eboot.bin>");
-        Log.Info("       SharpEmu.CLI --export-report[=<path>]   (writes the HLE export coverage report and exits)");
+        Log.Info("       SharpEmu.CLI --export-report[=<path>]    (writes the HLE export coverage report and exits)");
+        Log.Info("       SharpEmu.CLI --kernel-status[=<path>]    (writes the kernel HLE triage report and exits)");
         Log.Info(@"Example: SharpEmu.CLI --cpu-engine=native --trace-imports=64 --log-level=debug ""E:\Games\...\eboot.bin""");
     }
 
@@ -487,6 +493,62 @@ internal static partial class Program
         catch (Exception ex)
         {
             Log.Error("Failed to generate export coverage report.", ex);
+            exitCode = 5;
+        }
+
+        return true;
+    }
+
+    private static bool TryHandleKernelStatus(string[] args, out int exitCode)
+    {
+        exitCode = 0;
+        string? outputPath = null;
+        var requested = false;
+        const string prefix = "--kernel-status=";
+        foreach (var argument in args)
+        {
+            if (string.Equals(argument, "--kernel-status", StringComparison.OrdinalIgnoreCase))
+            {
+                requested = true;
+            }
+            else if (argument.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                requested = true;
+                var value = argument[prefix.Length..].Trim().Trim('"');
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    outputPath = value;
+                }
+            }
+        }
+
+        if (!requested)
+        {
+            return false;
+        }
+
+        try
+        {
+            var exports = HleModuleCatalog.GetRegisteredExports();
+            var markdownPath = Path.GetFullPath(outputPath ?? Path.Combine(ResolveDocsRoot(), "kernel-hle-status.md"));
+            var jsonPath = Path.ChangeExtension(markdownPath, ".json");
+            var directory = Path.GetDirectoryName(markdownPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.WriteAllText(markdownPath, KernelHleStatusReport.RenderMarkdown(exports));
+            File.WriteAllText(jsonPath, KernelHleStatusReport.RenderJson(exports));
+
+            var kernelCount = exports.Count(export => string.Equals(export.LibraryName, "libKernel", StringComparison.Ordinal));
+            Log.Info($"Kernel HLE status: {kernelCount} libKernel exports triaged");
+            Log.Info($"  {markdownPath}");
+            Log.Info($"  {jsonPath}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Failed to generate kernel HLE status.", ex);
             exitCode = 5;
         }
 

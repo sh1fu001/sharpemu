@@ -719,6 +719,46 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
         }
     }
 
+    public bool TryDescribe(ulong virtualAddress, out MemoryRegionInfo info)
+    {
+        _gate.EnterReadLock();
+        try
+        {
+            var region = FindRegionContaining(virtualAddress);
+            if (region is null || virtualAddress >= region.VirtualAddress + region.Size)
+            {
+                info = default;
+                return false;
+            }
+
+            // Per-page protection is authoritative once a segment has been mapped; fall back to the
+            // region's allocation protection for pages that were never re-protected.
+            var flags = _pageProtections.TryGetValue(AlignDown(virtualAddress, PageSize), out var pageFlags)
+                ? pageFlags
+                : ProtectionFromWin32(region.Protection);
+            info = new MemoryRegionInfo(region.VirtualAddress, region.Size, flags);
+            return true;
+        }
+        finally
+        {
+            _gate.ExitReadLock();
+        }
+    }
+
+    private static ProgramHeaderFlags ProtectionFromWin32(uint protection)
+    {
+        return protection switch
+        {
+            PAGE_EXECUTE_READ => ProgramHeaderFlags.Read | ProgramHeaderFlags.Execute,
+            PAGE_EXECUTE_READWRITE => ProgramHeaderFlags.Read | ProgramHeaderFlags.Write | ProgramHeaderFlags.Execute,
+            PAGE_EXECUTE_WRITECOPY => ProgramHeaderFlags.Read | ProgramHeaderFlags.Write | ProgramHeaderFlags.Execute,
+            PAGE_EXECUTE => ProgramHeaderFlags.Execute,
+            PAGE_READWRITE => ProgramHeaderFlags.Read | ProgramHeaderFlags.Write,
+            PAGE_READONLY => ProgramHeaderFlags.Read,
+            _ => ProgramHeaderFlags.None,
+        };
+    }
+
     private MemoryRegion? FindRegion(ulong address, ulong size)
     {
         var region = FindRegionContaining(address);
