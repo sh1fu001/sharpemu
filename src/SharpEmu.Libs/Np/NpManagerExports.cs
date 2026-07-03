@@ -116,6 +116,60 @@ public static class NpManagerExports
         return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
     }
 
+    // No PSN user is signed in (see sceNpGetState -> 1). The account getters therefore report
+    // SIGNED_OUT and must NOT touch the caller's output buffer: the guest only reads the buffer on
+    // success, and writing a full struct here can overflow a smaller stack scratch the caller sized
+    // for its error path (observed corrupting a stack canary during GRIS boot).
+    private const int SceNpErrorSignedOut = unchecked((int)0x80550006);
+
+    [SysAbiExport(
+        Nid = "a8R9-75u4iM",
+        ExportName = "sceNpGetAccountId",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceNpManager")]
+    public static int NpGetAccountId(CpuContext ctx) => SetSignedOut(ctx);
+
+    [SysAbiExport(
+        Nid = "rbknaUjpqWo",
+        ExportName = "sceNpGetAccountIdA",
+        Target = Generation.Gen5,
+        LibraryName = "libSceNpManager")]
+    public static int NpGetAccountIdA(CpuContext ctx) => SetSignedOut(ctx);
+
+    [SysAbiExport(
+        Nid = "p-o74CnoNzY",
+        ExportName = "sceNpGetNpId",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceNpManager")]
+    public static int NpGetNpId(CpuContext ctx) => SetSignedOut(ctx);
+
+    [SysAbiExport(
+        Nid = "Ghz9iWDUtC4",
+        ExportName = "sceNpGetAccountCountry",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceNpManager")]
+    public static int NpGetAccountCountry(CpuContext ctx) => SetSignedOut(ctx);
+
+    [SysAbiExport(
+        Nid = "JT+t00a3TxA",
+        ExportName = "sceNpGetAccountCountryA",
+        Target = Generation.Gen5,
+        LibraryName = "libSceNpManager")]
+    public static int NpGetAccountCountryA(CpuContext ctx) => SetSignedOut(ctx);
+
+    [SysAbiExport(
+        Nid = "e-ZuhGEoeC4",
+        ExportName = "sceNpGetNpReachabilityState",
+        Target = Generation.Gen5,
+        LibraryName = "libSceNpManager")]
+    public static int NpGetNpReachabilityState(CpuContext ctx) => SetSignedOut(ctx);
+
+    private static int SetSignedOut(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = unchecked((ulong)SceNpErrorSignedOut);
+        return SceNpErrorSignedOut;
+    }
+
     private static int SetReturn(CpuContext ctx, OrbisGen2Result result)
     {
         ctx[CpuRegister.Rax] = unchecked((ulong)(int)result);

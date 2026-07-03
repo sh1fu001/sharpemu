@@ -237,6 +237,28 @@ public static class AgcExports
     }
 
     [SysAbiExport(
+        Nid = "MM4IZSEYytQ",
+        ExportName = "sceAgcDriverSetHsOffchipParam",
+        Target = Generation.Gen5,
+        LibraryName = "libSceAgcDriver")]
+    public static int DriverSetHsOffchipParam(CpuContext ctx)
+    {
+        TraceAgc($"agc.driver_set_hs_offchip_param rdi=0x{ctx[CpuRegister.Rdi]:X16} rsi=0x{ctx[CpuRegister.Rsi]:X16} rdx=0x{ctx[CpuRegister.Rdx]:X16}");
+        return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+    }
+
+    [SysAbiExport(
+        Nid = "XlNp7jzGiPo",
+        ExportName = "sceAgcDriverSetTFRing",
+        Target = Generation.Gen5,
+        LibraryName = "libSceAgcDriver")]
+    public static int DriverSetTfRing(CpuContext ctx)
+    {
+        TraceAgc($"agc.driver_set_tf_ring rdi=0x{ctx[CpuRegister.Rdi]:X16} rsi=0x{ctx[CpuRegister.Rsi]:X16}");
+        return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+    }
+
+    [SysAbiExport(
         Nid = "2JtWUUiYBXs",
         ExportName = "sceAgcGetRegisterDefaults2",
         Target = Generation.Gen5,

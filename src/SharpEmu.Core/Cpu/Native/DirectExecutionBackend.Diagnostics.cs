@@ -361,4 +361,19 @@ public sealed partial class DirectExecutionBackend
 	{
 		return (protect & 0xF0) != 0;
 	}
+
+	private unsafe bool IsExecutableGuestAddress(ulong address)
+	{
+		if (address < 0x10000)
+		{
+			return false;
+		}
+
+		if (VirtualQuery((void*)address, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0)
+		{
+			return false;
+		}
+
+		return mbi.State == MEM_COMMIT && IsExecutableProtection(mbi.Protect);
+	}
 }

@@ -51,6 +51,18 @@ public static class LibcInternalExports
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
 
+    [SysAbiExport(
+        Nid = "KuOuD58hqn4",
+        ExportName = "malloc_stats_fast",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "LibcInternalExt")]
+    public static int MallocStatsFast(CpuContext ctx)
+    {
+        // Allocator diagnostics only; the host CLR allocator has nothing equivalent to report.
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
     private static nint EnsureHeapTraceStorage()
     {
         lock (_heapTraceGate)

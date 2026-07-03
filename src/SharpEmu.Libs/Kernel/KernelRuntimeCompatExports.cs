@@ -759,8 +759,24 @@ public static class KernelRuntimeCompatExports
                 : AlignUp(_nextReservedVirtualBase, effectiveAlignment);
         }
 
-        if (!TryReserveVirtualRange(ctx, desiredAddress, length, effectiveAlignment, allowSearch: !fixedMapping, out var mappedAddress))
+        ulong mappedAddress;
+        if (fixedMapping &&
+            requestedAddress != 0 &&
+            KernelMemoryCompatExports.IsTrackedVirtualRange(requestedAddress, length))
         {
+            mappedAddress = requestedAddress;
+        }
+        else if (!TryReserveVirtualRange(
+                     ctx,
+                     desiredAddress,
+                     length,
+                     effectiveAlignment,
+                     allowSearch: !fixedMapping,
+                     out mappedAddress))
+        {
+            Log.Trace(
+                $"reserve_virtual_range failed: req=0x{requestedAddress:X16} desired=0x{desiredAddress:X16} " +
+                $"len=0x{length:X16} flags=0x{flags:X8} align=0x{effectiveAlignment:X16} fixed={fixedMapping}");
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND;
         }
 
@@ -1367,6 +1383,73 @@ public static class KernelRuntimeCompatExports
     }
 
     [SysAbiExport(
+        Nid = "yDBwVAolDgg",
+        ExportName = "sceKernelIsStack",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int KernelIsStack(CpuContext ctx)
+    {
+        // Stack classification is advisory for this runtime; unknown addresses are reported as false.
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "pztV4AF18iI",
+        ExportName = "sincosf",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Sincosf(CpuContext ctx)
+    {
+        // void sincosf(float x, float* sin, float* cos): x in xmm0, out pointers in rdi/rsi.
+        var outSinAddress = ctx[CpuRegister.Rdi];
+        var outCosAddress = ctx[CpuRegister.Rsi];
+        ctx.GetXmmRegister(0, out var xmm0Low, out _);
+        var value = BitConverter.Int32BitsToSingle(unchecked((int)xmm0Low));
+        var (sin, cos) = MathF.SinCos(value);
+
+        Span<byte> result = stackalloc byte[sizeof(float)];
+        BinaryPrimitives.WriteSingleLittleEndian(result, sin);
+        if (outSinAddress != 0 && !KernelMemoryCompatExports.TryWriteCompat(ctx, outSinAddress, result))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        BinaryPrimitives.WriteSingleLittleEndian(result, cos);
+        if (outCosAddress != 0 && !KernelMemoryCompatExports.TryWriteCompat(ctx, outCosAddress, result))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "1D0H2KNjshE",
+        ExportName = "powf",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Powf(CpuContext ctx)
+    {
+        var left = ReadFloatArgument(ctx, 0);
+        var right = ReadFloatArgument(ctx, 1);
+        WriteFloatResult(ctx, MathF.Pow(left, right));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "hsi9drzHR2k",
+        ExportName = "log2f",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Log2f(CpuContext ctx)
+    {
+        WriteFloatResult(ctx, MathF.Log2(ReadFloatArgument(ctx, 0)));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
         Nid = "Xjoosiw+XPI",
         ExportName = "sceKernelUuidCreate",
         Target = Generation.Gen4 | Generation.Gen5,
@@ -1388,6 +1471,17 @@ public static class KernelRuntimeCompatExports
 
         ctx[CpuRegister.Rax] = 0;
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    private static float ReadFloatArgument(CpuContext ctx, int registerIndex)
+    {
+        ctx.GetXmmRegister(registerIndex, out var low, out _);
+        return BitConverter.Int32BitsToSingle(unchecked((int)low));
+    }
+
+    private static void WriteFloatResult(CpuContext ctx, float value)
+    {
+        ctx.SetXmmRegister(0, BitConverter.SingleToUInt32Bits(value), 0);
     }
 
     private static int ResolveModuleHandleByAddress(ulong queriedAddress)

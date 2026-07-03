@@ -54,4 +54,16 @@ public static class AudioOutExports
         ctx[CpuRegister.Rax] = 0;
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
+
+    [SysAbiExport(
+        Nid = "b+uAV89IlxE",
+        ExportName = "sceAudioOutSetUsbVolume",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceAudioOut")]
+    public static int AudioOutSetUsbVolume(CpuContext ctx)
+    {
+        // No USB audio device is emulated; accept the volume request as a no-op.
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
 }
