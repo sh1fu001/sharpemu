@@ -78,4 +78,29 @@ public sealed class PhysicalVirtualMemoryTests
         Assert.False(memory.IsAccessible(0x1000, 1));
         Assert.False(memory.TryRead(0x1000, new byte[1]));
     }
+
+    [Fact]
+    public void LargeReservedRegion_CommitsTouchedPagesOnDemand()
+    {
+        if (!IsWindows)
+        {
+            return;
+        }
+
+        const ulong regionSize = 0x4000_0000;
+        using var memory = new PhysicalVirtualMemory();
+        var address = memory.AllocateAt(
+            0,
+            regionSize,
+            executable: false,
+            allowAlternative: true);
+        var target = address + regionSize - 0x1000;
+        var payload = new byte[] { 0x51, 0x45, 0x4D, 0x55 };
+
+        Assert.True(memory.TryWrite(target, payload));
+
+        var readBack = new byte[payload.Length];
+        Assert.True(memory.TryRead(target, readBack));
+        Assert.Equal(payload, readBack);
+    }
 }

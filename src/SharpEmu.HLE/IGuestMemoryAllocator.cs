@@ -7,3 +7,8 @@ public interface IGuestMemoryAllocator
 {
     bool TryAllocateGuestMemory(ulong size, ulong alignment, out ulong address);
 }
+
+public interface IGuestMemoryReleaser
+{
+    bool TryReleaseGuestMemory(ulong address, ulong size);
+}

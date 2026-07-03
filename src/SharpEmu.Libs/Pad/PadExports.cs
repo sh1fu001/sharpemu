@@ -46,6 +46,24 @@ public static class PadExports
     }
 
     [SysAbiExport(
+        Nid = "htiiS1FSPXU",
+        ExportName = "scePadCtrlpSyncInit",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libScePad")]
+    public static int PadCtrlpSyncInit(CpuContext ctx)
+    {
+        // Low-level controller sync transport init; nothing to bring up for the host input path.
+        return SetReturn(ctx, 0);
+    }
+
+    [SysAbiExport(
+        Nid = "AcslpN1jHR8",
+        ExportName = "scePadCtrlpSyncInitAlt",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libScePad")]
+    public static int PadCtrlpSyncInitAlt(CpuContext ctx) => PadCtrlpSyncInit(ctx);
+
+    [SysAbiExport(
         Nid = "xk0AcarP3V4",
         ExportName = "scePadOpen",
         Target = Generation.Gen4 | Generation.Gen5,

@@ -13,6 +13,8 @@ public sealed class SelfLoaderTests
 {
     private const int ElfHeaderSize = 64;
     private const int ProgramHeaderSize = 56;
+    private const int SelfHeaderSize = 32;
+    private const int SelfSegmentSize = 32;
 
     // Builds a minimal but valid little-endian ELF64 with a single PT_LOAD segment.
     private static byte[] BuildMinimalElf(byte[] segmentData, ulong entryAndVaddr = 0x1000)
@@ -47,6 +49,40 @@ public sealed class SelfLoaderTests
         BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(ph + 48), 0); // align (0 => no alignment check)
 
         segmentData.CopyTo(buffer, segmentOffset);
+        return buffer;
+    }
+
+    // Wraps a minimal ELF in the alternate SELF container used by decrypted PRX/FSELF modules.
+    private static byte[] BuildMinimalModuleSelf(byte[] segmentData, ulong entryAndVaddr = 0x1000)
+    {
+        var elf = BuildMinimalElf(segmentData, entryAndVaddr);
+        var elfOffset = SelfHeaderSize + SelfSegmentSize;
+        var elfPayloadOffset = ElfHeaderSize + ProgramHeaderSize;
+        var physicalSegmentOffset = elfOffset + elf.Length;
+        var buffer = new byte[physicalSegmentOffset + segmentData.Length];
+
+        buffer[0] = 0x54;
+        buffer[1] = 0x14;
+        buffer[2] = 0xF5;
+        buffer[3] = 0xEE;
+        buffer[4] = 0x00;
+        buffer[5] = 0x01;
+        buffer[6] = 0x01;
+        buffer[7] = 0x12;
+        buffer[8] = 0x01;
+        buffer[9] = 0x01;
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(16), (ulong)buffer.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(24), 1); // segment count
+        BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(26), 0x22);
+
+        // Blocked, unencrypted segment associated with program header zero.
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(SelfHeaderSize), 0x2804);
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(SelfHeaderSize + 8), (ulong)physicalSegmentOffset);
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(SelfHeaderSize + 16), (ulong)segmentData.Length);
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer.AsSpan(SelfHeaderSize + 24), (ulong)segmentData.Length);
+
+        elf.AsSpan(0, elfPayloadOffset).CopyTo(buffer.AsSpan(elfOffset));
+        segmentData.CopyTo(buffer, physicalSegmentOffset);
         return buffer;
     }
 
@@ -95,5 +131,64 @@ public sealed class SelfLoaderTests
         var readBack = new byte[segment.Length];
         Assert.True(vm.TryRead(image.EntryPoint, readBack));
         Assert.Equal(segment, readBack);
+    }
+
+    [Fact]
+    public void Load_AlternateModuleSelf_ParsesAndMapsSegment()
+    {
+        var segment = new byte[] { 0xDE, 0xAD, 0xBE, 0xEF, 1, 2, 3, 4 };
+        var self = BuildMinimalModuleSelf(segment);
+
+        var loader = new SelfLoader();
+        var vm = new VirtualMemory();
+        var image = loader.Load(self, vm);
+
+        Assert.True(image.IsSelf);
+        Assert.Single(image.ProgramHeaders);
+        var readBack = new byte[segment.Length];
+        Assert.True(vm.TryRead(image.EntryPoint, readBack));
+        Assert.Equal(segment, readBack);
+    }
+
+    [Fact]
+    public void RelocationRebase_IsInferredForProprietaryPositionIndependentImage()
+    {
+        const ulong imageBase = 0x0000000800000000;
+        const ulong relocationOffset = 0x1982F58;
+        var vm = new VirtualMemory();
+        vm.Map(
+            imageBase + relocationOffset,
+            0x1000,
+            0,
+            ReadOnlySpan<byte>.Empty,
+            ProgramHeaderFlags.Read | ProgramHeaderFlags.Write);
+
+        Assert.True(
+            SelfLoader.ShouldApplyImageBaseToRelocationOffset(
+                vm,
+                relocationOffset,
+                imageBase,
+                declaredPositionIndependent: false));
+    }
+
+    [Fact]
+    public void RelocationRebase_IsNotInferredForMappedAbsoluteOffset()
+    {
+        const ulong imageBase = 0x0000000800000000;
+        const ulong relocationOffset = 0x1982F58;
+        var vm = new VirtualMemory();
+        vm.Map(
+            relocationOffset,
+            0x1000,
+            0,
+            ReadOnlySpan<byte>.Empty,
+            ProgramHeaderFlags.Read | ProgramHeaderFlags.Write);
+
+        Assert.False(
+            SelfLoader.ShouldApplyImageBaseToRelocationOffset(
+                vm,
+                relocationOffset,
+                imageBase,
+                declaredPositionIndependent: false));
     }
 }

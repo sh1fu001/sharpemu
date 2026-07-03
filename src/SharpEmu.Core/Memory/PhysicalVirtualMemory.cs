@@ -8,7 +8,11 @@ using SharpEmu.Logging;
 
 namespace SharpEmu.Core.Memory;
 
-public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryAllocator, IDisposable
+public sealed unsafe class PhysicalVirtualMemory :
+    IVirtualMemory,
+    IGuestMemoryAllocator,
+    IGuestMemoryReleaser,
+    IDisposable
 {
     private static readonly SharpEmuLogger Log = SharpEmuLog.For("Vmem");
     private readonly ReaderWriterLockSlim _gate = new(LockRecursionPolicy.SupportsRecursion);
@@ -21,8 +25,6 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
     private const ulong GuestAllocationArenaSize = 0x0100_0000;
     private const ulong GuestAllocationArenaStartOffset = PageSize;
     private const ulong LargeDataReserveThreshold = 0x4000_0000UL; // 1 GiB
-    private const ulong LazyReservePrimeBytes = 0x5000_0000UL; // 1.25 GiB
-    private const ulong LazyReservePrimeChunkBytes = 0x0200_0000UL; // 32 MiB
 
     private const uint MEM_COMMIT = 0x1000;
     private const uint MEM_RESERVE = 0x2000;
@@ -169,46 +171,6 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
 
         var actualAddress = (ulong)result;
 
-        var lazyPrimeState = "n/a";
-        if (reservedOnly)
-        {
-            var primeBytes = Math.Min(alignedSize, LazyReservePrimeBytes);
-            if (primeBytes != 0)
-            {
-                ulong committedBytes = 0;
-                while (committedBytes < primeBytes)
-                {
-                    var remaining = primeBytes - committedBytes;
-                    var chunkBytes = Math.Min(remaining, LazyReservePrimeChunkBytes);
-                    var commitAddress = (void*)(actualAddress + committedBytes);
-                    var committed = VirtualAlloc(commitAddress, (nuint)chunkBytes, MEM_COMMIT, PAGE_READWRITE);
-                    if (committed == null)
-                    {
-                        break;
-                    }
-
-                    committedBytes += chunkBytes;
-                }
-
-                if (committedBytes != 0)
-                {
-                    lazyPrimeState = committedBytes == primeBytes
-                        ? $"ok:{committedBytes:X}"
-                        : $"partial:{committedBytes:X}/{primeBytes:X}";
-                    Log.Info($"Primed lazy region: 0x{actualAddress:X16} - 0x{actualAddress + committedBytes:X16} ({committedBytes} bytes)");
-                }
-                else
-                {
-                    lazyPrimeState = $"fail:{primeBytes:X}";
-                    Log.Warning($"Failed to prime lazy region at 0x{actualAddress:X16} ({primeBytes} bytes), continuing with on-demand commit");
-                }
-            }
-            else
-            {
-                lazyPrimeState = "skip:0";
-            }
-        }
-
         _gate.EnterWriteLock();
         try
         {
@@ -229,7 +191,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
         var allocationKind = reservedOnly
             ? "reserved data memory (lazy commit)"
             : (executable ? "executable memory" : "data memory");
-        Log.Info($"Allocated {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes) lazy_prime={lazyPrimeState}");
+        Log.Info($"Allocated {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes)");
 
         return actualAddress;
     }
@@ -320,6 +282,42 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
             address = _guestAllocationArenaBase + alignedOffset;
             _guestAllocationOffset = alignedOffset + size;
             return true;
+        }
+    }
+
+    public bool TryReleaseGuestMemory(ulong address, ulong size)
+    {
+        if (address == 0 || size == 0)
+        {
+            return false;
+        }
+
+        _gate.EnterWriteLock();
+        try
+        {
+            var regionIndex = _regions.FindIndex(
+                region => region.VirtualAddress == address && region.Size == size);
+            if (regionIndex < 0 || !VirtualFree((void*)address, 0, MEM_RELEASE))
+            {
+                return false;
+            }
+
+            _regions.RemoveAt(regionIndex);
+            var endAddress = address + size;
+            var protectedPages = _pageProtections.Keys
+                .Where(pageAddress => pageAddress >= address && pageAddress < endAddress)
+                .ToArray();
+            foreach (var pageAddress in protectedPages)
+            {
+                _pageProtections.Remove(pageAddress);
+            }
+
+            Log.Info($"Released guest memory: 0x{address:X16} - 0x{endAddress:X16} ({size} bytes)");
+            return true;
+        }
+        finally
+        {
+            _gate.ExitWriteLock();
         }
     }
 

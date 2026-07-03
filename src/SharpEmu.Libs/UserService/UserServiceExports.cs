@@ -149,6 +149,30 @@ public static class UserServiceExports
     }
 
     [SysAbiExport(
+        Nid = "woNpu+45RLk",
+        ExportName = "sceUserServiceGetAgeLevel",
+        Target = Generation.Gen5,
+        LibraryName = "libSceUserService")]
+    public static int UserServiceGetAgeLevel(CpuContext ctx)
+    {
+        var userId = unchecked((int)ctx[CpuRegister.Rdi]);
+        var ageAddress = ctx[CpuRegister.Rsi];
+        if (userId != PrimaryUserId)
+        {
+            return SetReturn(ctx, OrbisUserServiceErrorInvalidParameter);
+        }
+
+        if (ageAddress == 0)
+        {
+            return SetReturn(ctx, OrbisUserServiceErrorInvalidArgument);
+        }
+
+        return TryWriteInt32(ctx, ageAddress, 18)
+            ? SetReturn(ctx, 0)
+            : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+    }
+
+    [SysAbiExport(
         Nid = "D-CzAxQL0XI",
         ExportName = "sceUserServiceGetPlatformPrivacySetting",
         Target = Generation.Gen4 | Generation.Gen5,
@@ -168,6 +192,112 @@ public static class UserServiceExports
         }
 
         return TryWriteInt32(ctx, valueAddress, 0)
+            ? SetReturn(ctx, 0)
+            : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+    }
+
+    [SysAbiExport(
+        Nid = "-sD02mFDBh4",
+        ExportName = "sceUserServiceGetGamePresets",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceUserService")]
+    public static int UserServiceGetGamePresets(CpuContext ctx)
+    {
+        var userId = unchecked((int)ctx[CpuRegister.Rdi]);
+        var valueAddress = ctx[CpuRegister.Rsi];
+        if (userId != PrimaryUserId)
+        {
+            return SetReturn(ctx, OrbisUserServiceErrorInvalidParameter);
+        }
+
+        if (valueAddress == 0)
+        {
+            return SetReturn(ctx, OrbisUserServiceErrorInvalidArgument);
+        }
+
+        // No game-specific preset is configured for the synthetic local user.
+        return TryWriteInt32(ctx, valueAddress, 0)
+            ? SetReturn(ctx, 0)
+            : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+    }
+
+    // Accessibility settings: the game queries the whole family at startup. None are configured for
+    // the synthetic local user, so each reports its "off"/default value (0). The two that take a
+    // struct output (Keyremap*Data) get a small zeroed buffer, whose leading enable/count field of 0
+    // means "no remap", rather than a bare int.
+    [SysAbiExport(Nid = "rnEhHqG-4xo", ExportName = "sceUserServiceGetAccessibilityChatTranscription", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityChatTranscription(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "xrtki9sUopg", ExportName = "sceUserServiceGetAccessibilityKeyremapEnable", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityKeyremapEnable(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "PWZKztiuMyc", ExportName = "sceUserServiceGetAccessibilityKeyremapEnableAston", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityKeyremapEnableAston(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "ZKJtxdgvzwg", ExportName = "sceUserServiceGetAccessibilityPressAndHoldDelay", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityPressAndHoldDelay(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "-3Y5GO+-i78", ExportName = "sceUserServiceGetAccessibilityTriggerEffect", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityTriggerEffect(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "qWYHOFwqCxY", ExportName = "sceUserServiceGetAccessibilityVibration", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityVibration(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "1zDEFUmBdoo", ExportName = "sceUserServiceGetAccessibilityZoom", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityZoom(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "hD-H81EN9Vg", ExportName = "sceUserServiceGetAccessibilityZoomEnabled", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityZoomEnabled(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "O6IW1-Dwm-w", ExportName = "sceUserServiceGetAccessibilityZoomFollowFocus", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityZoomFollowFocus(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "-ebPm7QOhhM", ExportName = "sceUserServiceGetA11yControllerLedBrightness", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetA11yControllerLedBrightness(CpuContext ctx) => AccessibilityGetInt(ctx);
+
+    [SysAbiExport(Nid = "g6ojqW3c8Z4", ExportName = "sceUserServiceGetAccessibilityKeyremapData", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityKeyremapData(CpuContext ctx) => AccessibilityGetZeroedStruct(ctx);
+
+    [SysAbiExport(Nid = "cF792qZAif8", ExportName = "sceUserServiceGetAccessibilityKeyremapDataAston", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libSceUserService")]
+    public static int UserServiceGetAccessibilityKeyremapDataAston(CpuContext ctx) => AccessibilityGetZeroedStruct(ctx);
+
+    private static int AccessibilityGetInt(CpuContext ctx)
+    {
+        var userId = unchecked((int)ctx[CpuRegister.Rdi]);
+        var valueAddress = ctx[CpuRegister.Rsi];
+        if (userId != PrimaryUserId)
+        {
+            return SetReturn(ctx, OrbisUserServiceErrorInvalidParameter);
+        }
+
+        if (valueAddress == 0)
+        {
+            return SetReturn(ctx, OrbisUserServiceErrorInvalidArgument);
+        }
+
+        return TryWriteInt32(ctx, valueAddress, 0)
+            ? SetReturn(ctx, 0)
+            : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+    }
+
+    private static int AccessibilityGetZeroedStruct(CpuContext ctx)
+    {
+        var userId = unchecked((int)ctx[CpuRegister.Rdi]);
+        var outAddress = ctx[CpuRegister.Rsi];
+        if (userId != PrimaryUserId)
+        {
+            return SetReturn(ctx, OrbisUserServiceErrorInvalidParameter);
+        }
+
+        if (outAddress == 0)
+        {
+            return SetReturn(ctx, OrbisUserServiceErrorInvalidArgument);
+        }
+
+        // Zero the leading enable/count word so the caller reads "no keyremap configured".
+        Span<byte> zeroed = stackalloc byte[sizeof(int)];
+        zeroed.Clear();
+        return ctx.Memory.TryWrite(outAddress, zeroed)
             ? SetReturn(ctx, 0)
             : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
     }

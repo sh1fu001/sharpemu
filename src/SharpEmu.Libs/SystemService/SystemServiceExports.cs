@@ -97,6 +97,17 @@ public static class SystemServiceExports
         return SetReturn(ctx, 0);
     }
 
+    [SysAbiExport(
+        Nid = "3s8cHiCBKBE",
+        ExportName = "sceSystemServiceReportAbnormalTermination",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceSystemService")]
+    public static int SystemServiceReportAbnormalTermination(CpuContext ctx)
+    {
+        // Host-side diagnostics already capture the guest failure context.
+        return SetReturn(ctx, 0);
+    }
+
     private static int SetReturn(CpuContext ctx, int result)
     {
         ctx[CpuRegister.Rax] = unchecked((ulong)result);

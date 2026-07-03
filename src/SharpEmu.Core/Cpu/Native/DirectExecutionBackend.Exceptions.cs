@@ -15,11 +15,25 @@ namespace SharpEmu.Core.Cpu.Native;
 
 public sealed partial class DirectExecutionBackend
 {
-	private const ulong LazyCommitWindowBytes = 0x0200_0000UL;
+	private const ulong LazyCommitWindowBytes = 0x0001_0000UL;
 	private static int _lazyCommitTraceCount;
+
+	// Opt-in (SHARPEMU_SKIP_GARBAGE_STORES=1) "best-effort keep running" mode: when guest code stores
+	// to a genuinely inaccessible address (a garbage index computed from an incomplete-VM value), step
+	// over the store instead of letting the uncatchable AV kill the process. The store targeted junk
+	// memory anyway, so dropping it loses nothing; it keeps a non-essential garbage write (e.g. a
+	// debug/name string) from taking down the whole run.
+	private bool _skipGarbageStores;
+	private long _garbageStoreSkips;
 
 	private unsafe void SetupExceptionHandler()
 	{
+		_skipGarbageStores = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_SKIP_GARBAGE_STORES"), "1", StringComparison.Ordinal);
+		if (_skipGarbageStores)
+		{
+			Console.Error.WriteLine("[LOADER][INFO] Garbage-store survival mode enabled (SHARPEMU_SKIP_GARBAGE_STORES=1).");
+		}
+
 		if (!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_RAW_HANDLER"), "1", StringComparison.Ordinal))
 		{
 			_rawExceptionHandlerStub = CreateExceptionHandlerTrampoline(RawVectoredHandlerPtrManaged);
@@ -103,7 +117,15 @@ public sealed partial class DirectExecutionBackend
 			ulong rip = ReadCtxU64(contextRecord, 248);
 			ulong rsp = ReadCtxU64(contextRecord, 152);
 
-			if (exceptionCode == 3221225477u && TryHandleLazyCommittedPage(exceptionRecord, rip, rsp))
+			if (exceptionCode == 3221225477u && TryHandleLazyCommittedPage(exceptionRecord, contextRecord, rip, rsp))
+			{
+				return -1;
+			}
+			if (exceptionCode == 3221225477u && TryRecoverGuestExecuteFault(exceptionInfo) != 0)
+			{
+				return -1;
+			}
+			if (exceptionCode == 3221225477u && TryRecoverGuestGarbageStore(exceptionRecord, contextRecord, rip))
 			{
 				return -1;
 			}
@@ -337,6 +359,95 @@ public sealed partial class DirectExecutionBackend
 		{
 			return false;
 		}
+	}
+
+	// Steps over a guest store to an inaccessible address (garbage index / OOB write from an
+	// incomplete-VM value) instead of letting the uncatchable AV terminate the process. Only engages
+	// when SHARPEMU_SKIP_GARBAGE_STORES=1, only for write faults, and only when the target is genuinely
+	// not a committed writable page (so it never masks a fault on real, mapped guest memory).
+	private unsafe bool TryRecoverGuestGarbageStore(EXCEPTION_RECORD* exceptionRecord, void* contextRecord, ulong rip)
+	{
+		if (!_skipGarbageStores || exceptionRecord->NumberParameters < 2)
+		{
+			return false;
+		}
+
+		ulong accessType = *exceptionRecord->ExceptionInformation;
+		if (accessType != 0 && accessType != 1)
+		{
+			return false;
+		}
+
+		ulong target = exceptionRecord->ExceptionInformation[1];
+
+		// A committed page already permitting this access would not have faulted, so if we see one the
+		// fault is something else entirely — leave it for the fatal path rather than silently skipping.
+		var accessibleMask = accessType == 1 ? 0xCCu : 0xEEu;
+		if (VirtualQuery((void*)target, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) != 0 &&
+			mbi.State == MEM_COMMIT &&
+			(mbi.Protect & accessibleMask) != 0 &&
+			(mbi.Protect & 0x100u) == 0)
+		{
+			return false;
+		}
+
+		byte[] instructionBytes = new byte[15];
+		try
+		{
+			Marshal.Copy((nint)rip, instructionBytes, 0, instructionBytes.Length);
+		}
+		catch
+		{
+			return false;
+		}
+
+		if (!IcedDecoder.TryDecode(rip, instructionBytes, out var instruction) || instruction.Length <= 0)
+		{
+			return false;
+		}
+
+		// A read fault can only be dropped safely for a bulk string op (rep movs/stos/...), where
+		// abandoning the whole transfer is well-defined. Skipping a scalar load would leave its
+		// destination register holding stale garbage, so those stay fatal.
+		if (accessType == 0 && !IsRepStringOp(instructionBytes))
+		{
+			return false;
+		}
+
+		long count = Interlocked.Increment(ref _garbageStoreSkips);
+		if (count <= 32 || count % 4096 == 0)
+		{
+			Console.Error.WriteLine(
+				$"[LOADER][WARN] Skipped garbage guest {(accessType == 1 ? "store" : "read")} #{count} at rip=0x{rip:X16} " +
+				$"target=0x{target:X16} len={instruction.Length} ({instruction.Text}).");
+			Console.Error.Flush();
+		}
+
+		WriteCtxU64(contextRecord, CTX_RIP, rip + (ulong)instruction.Length);
+		return true;
+	}
+
+	// True for a REP-prefixed x86 string instruction (movs/stos/cmps/lods/scas), after an optional REX.
+	private static bool IsRepStringOp(byte[] bytes)
+	{
+		var i = 0;
+		if (i >= bytes.Length || (bytes[i] != 0xF3 && bytes[i] != 0xF2))
+		{
+			return false;
+		}
+
+		i++;
+		if (i < bytes.Length && (bytes[i] & 0xF0) == 0x40)
+		{
+			i++;
+		}
+
+		if (i >= bytes.Length)
+		{
+			return false;
+		}
+
+		return bytes[i] is 0xA4 or 0xA5 or 0xA6 or 0xA7 or 0xAA or 0xAB or 0xAC or 0xAD or 0xAE or 0xAF;
 	}
 
 	private static bool IsBenignHostDebugException(uint exceptionCode)
@@ -920,7 +1031,11 @@ public sealed partial class DirectExecutionBackend
 		return true;
 	}
 
-	private unsafe bool TryHandleLazyCommittedPage(EXCEPTION_RECORD* exceptionRecord, ulong rip, ulong rsp)
+	private unsafe bool TryHandleLazyCommittedPage(
+		EXCEPTION_RECORD* exceptionRecord,
+		void* contextRecord,
+		ulong rip,
+		ulong rsp)
 	{
 		if (exceptionRecord->NumberParameters < 2)
 		{
@@ -953,6 +1068,57 @@ public sealed partial class DirectExecutionBackend
 		if (traceLazyCommit)
 		{
 			Console.Error.WriteLine($"[LOADER][TRACE] lazy-query#{traceIndex}: fault=0x{faultAddress:X16} owner={owner} rip=0x{rip:X16} rsp=0x{rsp:X16} state=0x{mbi.State:X08} base=0x{mbi.BaseAddress:X16} size=0x{mbi.RegionSize:X16} alloc=0x{mbi.AllocationProtect:X08} prot=0x{mbi.Protect:X08}");
+			if (traceIndex <= 10)
+			{
+				var instructionBytes = new byte[15];
+				Marshal.Copy((nint)rip, instructionBytes, 0, instructionBytes.Length);
+				if (IcedDecoder.TryDecode(rip, instructionBytes, out var instruction))
+				{
+					Console.Error.WriteLine(
+						$"[LOADER][TRACE] lazy-instruction#{traceIndex}: {instruction.Text} " +
+						$"bytes={IcedDecoder.FormatBytes(instruction.Bytes)} " +
+						$"rax=0x{ReadCtxU64(contextRecord, CTX_RAX):X16} " +
+						$"rcx=0x{ReadCtxU64(contextRecord, CTX_RCX):X16} " +
+						$"rsi=0x{ReadCtxU64(contextRecord, CTX_RSI):X16} " +
+						$"rdi=0x{ReadCtxU64(contextRecord, CTX_RDI):X16}");
+				}
+			}
+		}
+
+		if (TrySkipSparseZeroFill(contextRecord, rip, faultAddress, owner, out var skippedBytes))
+		{
+			Console.Error.WriteLine(
+				$"[LOADER][TRACE] lazy-zero-skip#{traceIndex}: " +
+				$"addr=0x{faultAddress:X16} size=0x{skippedBytes:X16}");
+			return true;
+		}
+
+		if (TrySkipSparseCopy(contextRecord, rip, faultAddress, out skippedBytes))
+		{
+			Console.Error.WriteLine(
+				$"[LOADER][TRACE] lazy-copy-skip#{traceIndex}: " +
+				$"fault=0x{faultAddress:X16} size=0x{skippedBytes:X16}");
+			return true;
+		}
+
+		if (TrySkipSparseComparison(contextRecord, rip, faultAddress, out skippedBytes))
+		{
+			Console.Error.WriteLine(
+				$"[LOADER][TRACE] lazy-compare-skip#{traceIndex}: " +
+				$"fault=0x{faultAddress:X16} size=0x{skippedBytes:X16}");
+			return true;
+		}
+
+		if (TrySkipSparseZeroRecordInitialization(
+				contextRecord,
+				rip,
+				faultAddress,
+				out skippedBytes))
+		{
+			Console.Error.WriteLine(
+				$"[LOADER][TRACE] lazy-record-zero-skip#{traceIndex}: " +
+				$"fault=0x{faultAddress:X16} size=0x{skippedBytes:X16}");
+			return true;
 		}
 
 		if (mbi.State == 4096 && IsAccessCompatible(accessType, mbi.Protect))
@@ -1169,6 +1335,542 @@ public sealed partial class DirectExecutionBackend
 				_ => false
 			};
 		}
+	}
+
+	private unsafe bool TrySkipSparseZeroFill(
+		void* contextRecord,
+		ulong rip,
+		ulong faultAddress,
+		string owner,
+		out ulong skippedBytes)
+	{
+		skippedBytes = 0;
+		if (*(byte*)rip != 0xF3 ||
+			*((byte*)rip + 1) != 0xAA ||
+			(ReadCtxU32(contextRecord, CTX_EFLAGS) & 0x400u) != 0)
+		{
+			return false;
+		}
+
+		var destination = ReadCtxU64(contextRecord, CTX_RDI);
+		var count = ReadCtxU64(contextRecord, CTX_RCX);
+		var value = (byte)ReadCtxU64(contextRecord, CTX_RAX);
+		if (value != 0 ||
+			count == 0 ||
+			destination != faultAddress ||
+			!TryAddRange(destination, count, out var endAddress) ||
+			!IsGuestOwnedLazyCommitAddress(endAddress - 1, out var endOwner) ||
+			!string.Equals(owner, endOwner, StringComparison.Ordinal) ||
+			!TryResetSparseZeroRange(destination, endAddress))
+		{
+			return false;
+		}
+
+		WriteCtxU64(contextRecord, CTX_RDI, endAddress);
+		WriteCtxU64(contextRecord, CTX_RCX, 0);
+		WriteCtxU64(contextRecord, CTX_RIP, rip + 2);
+		skippedBytes = count;
+		return true;
+	}
+
+	private unsafe bool TrySkipSparseCopy(
+		void* contextRecord,
+		ulong rip,
+		ulong faultAddress,
+		out ulong skippedBytes)
+	{
+		skippedBytes = 0;
+		if (*(byte*)rip != 0xF3 ||
+			*((byte*)rip + 1) != 0xA4 ||
+			(ReadCtxU32(contextRecord, CTX_EFLAGS) & 0x400u) != 0)
+		{
+			return false;
+		}
+
+		var source = ReadCtxU64(contextRecord, CTX_RSI);
+		var destination = ReadCtxU64(contextRecord, CTX_RDI);
+		var count = ReadCtxU64(contextRecord, CTX_RCX);
+		if (count == 0 ||
+			(faultAddress != source && faultAddress != destination) ||
+			!TryAddRange(source, count, out var sourceEnd) ||
+			!TryAddRange(destination, count, out var destinationEnd) ||
+			!IsGuestOwnedLazyCommitAddress(source, out _) ||
+			!IsGuestOwnedLazyCommitAddress(sourceEnd - 1, out _) ||
+			!IsGuestOwnedLazyCommitAddress(destination, out _) ||
+			!IsGuestOwnedLazyCommitAddress(destinationEnd - 1, out _) ||
+			!TryCopySparseRange(source, destination, count))
+		{
+			return false;
+		}
+
+		WriteCtxU64(contextRecord, CTX_RSI, sourceEnd);
+		WriteCtxU64(contextRecord, CTX_RDI, destinationEnd);
+		WriteCtxU64(contextRecord, CTX_RCX, 0);
+		WriteCtxU64(contextRecord, CTX_RIP, rip + 2);
+		skippedBytes = count;
+		return true;
+	}
+
+	private unsafe bool TrySkipSparseComparison(
+		void* contextRecord,
+		ulong rip,
+		ulong faultAddress,
+		out ulong skippedBytes)
+	{
+		skippedBytes = 0;
+		ReadOnlySpan<byte> loopPattern =
+		[
+			0x41, 0x0F, 0xB6, 0x5C, 0x05, 0x00,
+			0x41, 0x0F, 0xB6, 0x14, 0x02,
+			0x38, 0xD3,
+			0x75, 0x11,
+			0x48, 0xFF, 0xC0,
+			0x48, 0x39, 0xC7,
+			0x75, 0xE9,
+		];
+
+		ulong loopStart;
+		if (rip >= 6 &&
+			*(byte*)rip == 0x41 &&
+			*((byte*)rip + 1) == 0x0F &&
+			*((byte*)rip + 3) == 0x5C)
+		{
+			loopStart = rip;
+		}
+		else if (rip >= 6)
+		{
+			loopStart = rip - 6;
+		}
+		else
+		{
+			return false;
+		}
+
+		if (!new ReadOnlySpan<byte>((void*)loopStart, loopPattern.Length).SequenceEqual(loopPattern))
+		{
+			return false;
+		}
+
+		var offset = ReadCtxU64(contextRecord, CTX_RAX);
+		var length = ReadCtxU64(contextRecord, CTX_RDI);
+		var left = ReadCtxU64(contextRecord, CTX_R13);
+		var right = ReadCtxU64(contextRecord, CTX_R10);
+		if (offset >= length ||
+			!TryAddRange(left, length, out var leftEnd) ||
+			!TryAddRange(right, length, out var rightEnd) ||
+			!TryAddRange(left, offset, out var leftCurrent) ||
+			!TryAddRange(right, offset, out var rightCurrent) ||
+			(faultAddress != leftCurrent && faultAddress != rightCurrent) ||
+			!IsGuestOwnedLazyCommitAddress(left, out _) ||
+			!IsGuestOwnedLazyCommitAddress(leftEnd - 1, out _) ||
+			!IsGuestOwnedLazyCommitAddress(right, out _) ||
+			!IsGuestOwnedLazyCommitAddress(rightEnd - 1, out _) ||
+			!TrySparseRangesEqual(
+				leftCurrent,
+				rightCurrent,
+				length - offset))
+		{
+			return false;
+		}
+
+		WriteCtxU64(contextRecord, CTX_RAX, length);
+		WriteCtxU64(contextRecord, CTX_RBX, 0);
+		WriteCtxU64(contextRecord, CTX_RDX, 0);
+		WriteCtxU64(contextRecord, CTX_RIP, loopStart + 18);
+		skippedBytes = length - offset;
+		return true;
+	}
+
+	private unsafe bool TrySkipSparseZeroRecordInitialization(
+		void* contextRecord,
+		ulong rip,
+		ulong faultAddress,
+		out ulong skippedBytes)
+	{
+		skippedBytes = 0;
+		ReadOnlySpan<byte> loopPattern =
+		[
+			0x48, 0xC7, 0x41, 0xE0, 0x00, 0x00, 0x00, 0x00,
+			0x48, 0xC7, 0x41, 0xF8, 0x00, 0x00, 0x00, 0x00,
+			0x89, 0x01,
+			0xC6, 0x41, 0xE8, 0x00,
+			0x48, 0x83, 0xC1, 0x28,
+			0x49, 0xFF, 0xCC,
+			0x75, 0xE1,
+		];
+
+		ulong loopStart;
+		if (*(byte*)rip == 0x48 && *((byte*)rip + 3) == 0xE0)
+		{
+			loopStart = rip;
+		}
+		else if (rip >= 8 && *(byte*)rip == 0x48 && *((byte*)rip + 3) == 0xF8)
+		{
+			loopStart = rip - 8;
+		}
+		else if (rip >= 16 && *(byte*)rip == 0x89 && *((byte*)rip + 1) == 0x01)
+		{
+			loopStart = rip - 16;
+		}
+		else if (rip >= 18 && *(byte*)rip == 0xC6 && *((byte*)rip + 1) == 0x41)
+		{
+			loopStart = rip - 18;
+		}
+		else
+		{
+			return false;
+		}
+
+		if (!new ReadOnlySpan<byte>((void*)loopStart, loopPattern.Length).SequenceEqual(loopPattern))
+		{
+			return false;
+		}
+
+		var remainingRecords = ReadCtxU64(contextRecord, CTX_R12);
+		var currentPointer = ReadCtxU64(contextRecord, CTX_RCX);
+		if ((uint)ReadCtxU64(contextRecord, CTX_RAX) != 0 ||
+			remainingRecords == 0 ||
+			currentPointer < 0x20 ||
+			remainingRecords > ulong.MaxValue / 0x28)
+		{
+			return false;
+		}
+
+		var startAddress = currentPointer - 0x20;
+		var byteCount = remainingRecords * 0x28;
+		if (!TryAddRange(startAddress, byteCount, out var endAddress) ||
+			faultAddress < startAddress ||
+			faultAddress >= startAddress + 0x28 ||
+			!IsGuestOwnedLazyCommitAddress(startAddress, out _) ||
+			!IsGuestOwnedLazyCommitAddress(endAddress - 1, out _) ||
+			!TryResetSparseZeroRange(startAddress, endAddress))
+		{
+			return false;
+		}
+
+		WriteCtxU64(contextRecord, CTX_RCX, endAddress + 0x20);
+		WriteCtxU64(contextRecord, CTX_R12, 0);
+		WriteCtxU64(contextRecord, CTX_RIP, loopStart + 0x51);
+		skippedBytes = byteCount;
+		return true;
+	}
+
+	private unsafe static bool TrySparseRangesEqual(
+		ulong left,
+		ulong right,
+		ulong length)
+	{
+		if (!TryValidateSparseRange(left, length) ||
+			!TryValidateSparseRange(right, length))
+		{
+			return false;
+		}
+
+		ulong offset = 0;
+		while (offset < length)
+		{
+			var leftAddress = left + offset;
+			var rightAddress = right + offset;
+			if (VirtualQuery(
+					(void*)leftAddress,
+					out var leftInformation,
+					(nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+				VirtualQuery(
+					(void*)rightAddress,
+					out var rightInformation,
+					(nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+				!TryAddRange(
+					leftInformation.BaseAddress,
+					leftInformation.RegionSize,
+					out var leftInformationEnd) ||
+				!TryAddRange(
+					rightInformation.BaseAddress,
+					rightInformation.RegionSize,
+					out var rightInformationEnd))
+			{
+				return false;
+			}
+
+			var chunkLength = Math.Min(
+				length - offset,
+				Math.Min(
+					leftInformationEnd - leftAddress,
+					rightInformationEnd - rightAddress));
+			if (leftInformation.State == MEM_COMMIT &&
+				rightInformation.State == MEM_COMMIT)
+			{
+				if (!MemoryRangesEqual(leftAddress, rightAddress, chunkLength))
+				{
+					return false;
+				}
+			}
+			else if (leftInformation.State == MEM_COMMIT)
+			{
+				if (!MemoryRangeIsZero(leftAddress, chunkLength))
+				{
+					return false;
+				}
+			}
+			else if (rightInformation.State == MEM_COMMIT &&
+					 !MemoryRangeIsZero(rightAddress, chunkLength))
+			{
+				return false;
+			}
+
+			offset += chunkLength;
+		}
+
+		return true;
+	}
+
+	private unsafe static bool MemoryRangesEqual(
+		ulong left,
+		ulong right,
+		ulong length)
+	{
+		const int chunkSize = 0x100000;
+		ulong offset = 0;
+		while (offset < length)
+		{
+			var currentLength = (int)Math.Min((ulong)chunkSize, length - offset);
+			var leftBytes = new ReadOnlySpan<byte>((void*)(left + offset), currentLength);
+			var rightBytes = new ReadOnlySpan<byte>((void*)(right + offset), currentLength);
+			if (!leftBytes.SequenceEqual(rightBytes))
+			{
+				return false;
+			}
+
+			offset += (ulong)currentLength;
+		}
+
+		return true;
+	}
+
+	private unsafe static bool MemoryRangeIsZero(ulong address, ulong length)
+	{
+		const int chunkSize = 0x100000;
+		ulong offset = 0;
+		while (offset < length)
+		{
+			var currentLength = (int)Math.Min((ulong)chunkSize, length - offset);
+			var bytes = new ReadOnlySpan<byte>((void*)(address + offset), currentLength);
+			if (bytes.IndexOfAnyExcept((byte)0) >= 0)
+			{
+				return false;
+			}
+
+			offset += (ulong)currentLength;
+		}
+
+		return true;
+	}
+
+	private unsafe static bool TryCopySparseRange(
+		ulong source,
+		ulong destination,
+		ulong length)
+	{
+		if (!TryValidateSparseRange(source, length) ||
+			!TryValidateSparseRange(destination, length))
+		{
+			return false;
+		}
+
+		ulong offset = 0;
+		while (offset < length)
+		{
+			var sourceAddress = source + offset;
+			if (VirtualQuery(
+					(void*)sourceAddress,
+					out var sourceInformation,
+					(nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+				!TryAddRange(
+					sourceInformation.BaseAddress,
+					sourceInformation.RegionSize,
+					out var sourceInformationEnd))
+			{
+				return false;
+			}
+
+			var chunkLength = Math.Min(
+				length - offset,
+				sourceInformationEnd - sourceAddress);
+			var destinationAddress = destination + offset;
+			if (sourceInformation.State == MEM_RESERVE)
+			{
+				if (!TryResetSparseZeroRange(
+						destinationAddress,
+						destinationAddress + chunkLength))
+				{
+					return false;
+				}
+			}
+			else if (sourceInformation.State == MEM_COMMIT)
+			{
+				if (VirtualAlloc(
+						(void*)destinationAddress,
+						(nuint)chunkLength,
+						MEM_COMMIT,
+						PAGE_READWRITE) == null)
+				{
+					return false;
+				}
+
+				Buffer.MemoryCopy(
+					(void*)sourceAddress,
+					(void*)destinationAddress,
+					(nuint)chunkLength,
+					(nuint)chunkLength);
+			}
+			else
+			{
+				return false;
+			}
+
+			offset += chunkLength;
+		}
+
+		return true;
+	}
+
+	private unsafe static bool TryValidateSparseRange(ulong address, ulong length)
+	{
+		if (!TryAddRange(address, length, out var endAddress))
+		{
+			return false;
+		}
+
+		var cursor = address;
+		while (cursor < endAddress)
+		{
+			if (VirtualQuery(
+					(void*)cursor,
+					out var information,
+					(nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+				information.RegionSize == 0 ||
+				information.State is not (MEM_COMMIT or MEM_RESERVE) ||
+				!TryAddRange(
+					information.BaseAddress,
+					information.RegionSize,
+					out var informationEnd) ||
+				informationEnd <= cursor)
+			{
+				return false;
+			}
+
+			cursor = Math.Min(endAddress, informationEnd);
+		}
+
+		return true;
+	}
+
+	private unsafe static bool TryResetSparseZeroRange(ulong startAddress, ulong endAddress)
+	{
+		var cursor = startAddress;
+		while (cursor < endAddress)
+		{
+			if (VirtualQuery(
+					(void*)cursor,
+					out var information,
+					(nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+				information.RegionSize == 0 ||
+				!TryAddRange(information.BaseAddress, information.RegionSize, out var informationEnd) ||
+				informationEnd <= cursor ||
+				information.State is not (MEM_COMMIT or MEM_RESERVE))
+			{
+				return false;
+			}
+
+			cursor = Math.Min(endAddress, informationEnd);
+		}
+
+		cursor = startAddress;
+		while (cursor < endAddress)
+		{
+			if (VirtualQuery(
+					(void*)cursor,
+					out var information,
+					(nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+				!TryAddRange(information.BaseAddress, information.RegionSize, out var informationEnd))
+			{
+				return false;
+			}
+
+			var rangeEnd = Math.Min(endAddress, informationEnd);
+			if (information.State == MEM_COMMIT &&
+				!TryResetCommittedZeroRange(cursor, rangeEnd))
+			{
+				return false;
+			}
+
+			cursor = rangeEnd;
+		}
+
+		return true;
+	}
+
+	private unsafe static bool TryResetCommittedZeroRange(ulong startAddress, ulong endAddress)
+	{
+		const ulong pageSize = 0x1000;
+		var fullPageStart = (startAddress + pageSize - 1) & ~(pageSize - 1);
+		var fullPageEnd = endAddress & ~(pageSize - 1);
+
+		var prefixEnd = Math.Min(endAddress, fullPageStart);
+		if (prefixEnd > startAddress &&
+			!TryZeroCommittedBytes(startAddress, prefixEnd - startAddress))
+		{
+			return false;
+		}
+
+		if (fullPageEnd > fullPageStart &&
+			!VirtualFree(
+				(void*)fullPageStart,
+				(nuint)(fullPageEnd - fullPageStart),
+				MEM_DECOMMIT))
+		{
+			return false;
+		}
+
+		var suffixStart = Math.Max(startAddress, fullPageEnd);
+		return suffixStart >= endAddress ||
+			   TryZeroCommittedBytes(suffixStart, endAddress - suffixStart);
+	}
+
+	private unsafe static bool TryZeroCommittedBytes(ulong address, ulong length)
+	{
+		if (length == 0)
+		{
+			return true;
+		}
+
+		uint oldProtection;
+		if (!VirtualProtect(
+				(void*)address,
+				(nuint)length,
+				PAGE_READWRITE,
+				&oldProtection))
+		{
+			return false;
+		}
+
+		NativeMemory.Clear((void*)address, (nuint)length);
+		return VirtualProtect(
+			(void*)address,
+			(nuint)length,
+			oldProtection,
+			&oldProtection);
+	}
+
+	private static bool TryAddRange(ulong address, ulong length, out ulong endAddress)
+	{
+		if (length > ulong.MaxValue - address)
+		{
+			endAddress = 0;
+			return false;
+		}
+
+		endAddress = address + length;
+		return true;
 	}
 
 	private static bool ShouldTraceLazyCommit(int traceIndex)

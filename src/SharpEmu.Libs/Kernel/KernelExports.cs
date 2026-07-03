@@ -17,6 +17,7 @@ public static class KernelExports
     private static readonly List<CxaDestructorEntry> _cxaDestructors = new();
     private static readonly object _coredumpGate = new();
     private static readonly object _environmentGate = new();
+    private static readonly Dictionary<string, string> _guestEnvironment = new(StringComparer.Ordinal);
     private static readonly Dictionary<string, nint> _environmentStrings = new(StringComparer.Ordinal);
     private static ulong _coredumpHandler;
     private static ulong _coredumpHandlerContext;
@@ -446,13 +447,17 @@ public static class KernelExports
     public static int Getenv(CpuContext ctx)
     {
         var name = ReadCString(ctx, ctx[CpuRegister.Rdi], 1024);
-        if (!name.StartsWith("SDL_", StringComparison.Ordinal))
+        string? value;
+        lock (_environmentGate)
         {
-            ctx[CpuRegister.Rax] = 0;
-            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+            _guestEnvironment.TryGetValue(name, out value);
         }
 
-        var value = Environment.GetEnvironmentVariable(name);
+        if (value is null && name.StartsWith("SDL_", StringComparison.Ordinal))
+        {
+            value = Environment.GetEnvironmentVariable(name);
+        }
+
         if (value is null)
         {
             ctx[CpuRegister.Rax] = 0;
@@ -475,7 +480,35 @@ public static class KernelExports
     }
 
     [SysAbiExport(
-        Nid = "__hle_puts",
+        Nid = "M4YYbSFfJ8g",
+        ExportName = "setenv",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libc")]
+    public static int Setenv(CpuContext ctx)
+    {
+        var name = ReadCString(ctx, ctx[CpuRegister.Rdi], 1024);
+        var value = ReadCString(ctx, ctx[CpuRegister.Rsi], 4096);
+        var overwrite = ctx[CpuRegister.Rdx] != 0;
+        if (name.Length == 0 || name.Contains('='))
+        {
+            ctx[CpuRegister.Rax] = ulong.MaxValue;
+            return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+        }
+
+        lock (_environmentGate)
+        {
+            if (overwrite || !_guestEnvironment.ContainsKey(name))
+            {
+                _guestEnvironment[name] = value;
+            }
+        }
+
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "YQ0navp+YIc",
         ExportName = "puts",
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libc")]

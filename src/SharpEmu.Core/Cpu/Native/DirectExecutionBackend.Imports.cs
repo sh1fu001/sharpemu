@@ -10,6 +10,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using SharpEmu.Core.Cpu;
 using SharpEmu.HLE;
+using SharpEmu.Libs.Il2Cpp;
 using SharpEmu.Logging;
 
 namespace SharpEmu.Core.Cpu.Native;
@@ -42,12 +43,80 @@ public sealed partial class DirectExecutionBackend
 
 	private unsafe static int RawVectoredHandlerManaged(void* exceptionInfo)
 	{
-		return TryRecoverUnresolvedSentinel(exceptionInfo);
+		var recovered = TryRecoverUnresolvedSentinel(exceptionInfo);
+		if (recovered != 0)
+		{
+			return recovered;
+		}
+
+		return TryRecoverGuestExecuteFault(exceptionInfo);
 	}
 
 	private unsafe static int RawUnhandledFilterManaged(void* exceptionInfo)
 	{
-		return TryRecoverUnresolvedSentinel(exceptionInfo);
+		var recovered = TryRecoverUnresolvedSentinel(exceptionInfo);
+		if (recovered != 0)
+		{
+			return recovered;
+		}
+
+		return TryRecoverGuestExecuteFault(exceptionInfo);
+	}
+
+	// Recover from a guest thread transferring control to a non-executable address (e.g. a garbage
+	// function pointer produced by an unimplemented IL2CPP method lookup). Left unhandled, this is an
+	// uncatchable native execute fault that terminates the entire emulator process; instead we unwind
+	// the bad call to a plausible return from the stack so only that guest call is abandoned. Gated to
+	// execute faults where the faulting instruction pointer itself is the unmapped/non-executable
+	// target, so it never masks a fault raised by genuine, running guest/host code.
+	private unsafe static int TryRecoverGuestExecuteFault(void* exceptionInfo)
+	{
+		EXCEPTION_RECORD* exceptionRecord = ((EXCEPTION_POINTERS*)exceptionInfo)->ExceptionRecord;
+		if (exceptionRecord->ExceptionCode != 3221225477u || exceptionRecord->NumberParameters < 2)
+		{
+			return 0;
+		}
+
+		ulong accessType = *exceptionRecord->ExceptionInformation;
+		if (accessType != 8)
+		{
+			return 0;
+		}
+
+		void* contextRecord = ((EXCEPTION_POINTERS*)exceptionInfo)->ContextRecord;
+		ulong rip = ReadCtxU64(contextRecord, 248);
+		ulong faultTarget = exceptionRecord->ExceptionInformation[1];
+		if (rip != faultTarget || IsStaticExecutableAddress(rip))
+		{
+			return 0;
+		}
+
+		ulong rsp = ReadCtxU64(contextRecord, 152);
+		if (!TryGetPlausibleReturnFromStack(rsp, out var returnRip, out var nextRsp))
+		{
+			return 0;
+		}
+
+		WriteCtxU64(contextRecord, 120, 0uL);
+		WriteCtxU64(contextRecord, 152, nextRsp);
+		WriteCtxU64(contextRecord, 248, returnRip);
+		Interlocked.Increment(ref _rawSentinelRecoveries);
+		return -1;
+	}
+
+	private unsafe static bool IsStaticExecutableAddress(ulong address)
+	{
+		if (address < 0x10000)
+		{
+			return false;
+		}
+
+		if (VirtualQuery((void*)address, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0)
+		{
+			return false;
+		}
+
+		return mbi.State == MEM_COMMIT && (mbi.Protect & 0xF0) != 0;
 	}
 
 	private unsafe static int TryRecoverUnresolvedSentinel(void* exceptionInfo)
@@ -335,6 +404,10 @@ public sealed partial class DirectExecutionBackend
 				else if (string.Equals(importStubEntry.Nid, RuntimeStubNids.PayloadSyscall, StringComparison.Ordinal))
 				{
 					orbisGen2Result = DispatchPayloadSyscall();
+				}
+				else if (string.Equals(importStubEntry.Nid, Il2CppNids.ApiLookupSymbol, StringComparison.Ordinal))
+				{
+					orbisGen2Result = DispatchIl2CppApiLookupSymbol();
 				}
 				else if (importStubEntry.Export is { } cachedExport &&
 					(cachedExport.Target & cpuContext.TargetGeneration) != 0)
@@ -1228,6 +1301,65 @@ public sealed partial class DirectExecutionBackend
 			_dynamicImportAddresses[symbolName] = address;
 			Console.Error.WriteLine(
 				$"[LOADER][INFO] Dynamic HLE symbol: {symbolName} -> {export.LibraryName}:{export.Name} @0x{address:X16}");
+			return true;
+		}
+	}
+
+	private OrbisGen2Result DispatchIl2CppApiLookupSymbol()
+	{
+		var cpuContext = ActiveCpuContext;
+		if (cpuContext == null)
+		{
+			return OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+		}
+
+		var nameAddress = cpuContext[CpuRegister.Rdi];
+		if (!TryReadAsciiZ(nameAddress, 512, out var symbolName) || string.IsNullOrEmpty(symbolName))
+		{
+			cpuContext[CpuRegister.Rax] = 0uL;
+			return OrbisGen2Result.ORBIS_GEN2_OK;
+		}
+
+		cpuContext[CpuRegister.Rax] = TryResolveOrCreateIl2CppSymbol(symbolName, out var address) ? address : 0uL;
+		return OrbisGen2Result.ORBIS_GEN2_OK;
+	}
+
+	private bool TryResolveOrCreateIl2CppSymbol(string symbolName, out ulong address)
+	{
+		if (TryResolveDynamicHleSymbol(symbolName, out address))
+		{
+			return true;
+		}
+
+		lock (_dynamicImportGate)
+		{
+			if (_dynamicImportAddresses.TryGetValue(symbolName, out address))
+			{
+				return true;
+			}
+
+			var importIndex = _importEntries.Length;
+			var trampoline = CreateImportHandlerTrampoline(importIndex);
+			if (trampoline == 0)
+			{
+				address = 0;
+				return false;
+			}
+
+			Array.Resize(ref _importEntries, importIndex + 1);
+			address = unchecked((ulong)trampoline);
+			var capturedName = symbolName;
+			SysAbiFunction genericHandler = ctx => Il2CppGenericStub.HandleUnimplementedSymbol(ctx, capturedName);
+			var syntheticExport = new ExportedFunction(
+				"libIl2Cpp",
+				"__il2cpp_generic:" + symbolName,
+				symbolName,
+				Generation.Gen4 | Generation.Gen5,
+				genericHandler);
+			_importEntries[importIndex] = new ImportStubEntry(address, symbolName, syntheticExport);
+			_dynamicImportAddresses[symbolName] = address;
+			Console.Error.WriteLine(
+				$"[LOADER][WARN] il2cpp_api_lookup_symbol: '{symbolName}' has no HLE implementation; installed generic stub @0x{address:X16}");
 			return true;
 		}
 	}

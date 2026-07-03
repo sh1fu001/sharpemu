@@ -132,6 +132,13 @@ public static class KernelPthreadCompatExports
     public static int PthreadMutexInit(CpuContext ctx) => PthreadMutexInitCore(ctx, ctx[CpuRegister.Rdi], ctx[CpuRegister.Rsi]);
 
     [SysAbiExport(
+        Nid = "YaHc3GS7y7g",
+        ExportName = "_Mtx_init",
+        Target = Generation.Gen5,
+        LibraryName = "libc")]
+    public static int CxxMutexInit(CpuContext ctx) => PthreadMutexInitCore(ctx, ctx[CpuRegister.Rdi], attrAddress: 0);
+
+    [SysAbiExport(
         Nid = "2Of0f+3mhhE",
         ExportName = "scePthreadMutexDestroy",
         Target = Generation.Gen4 | Generation.Gen5,
@@ -262,6 +269,13 @@ public static class KernelPthreadCompatExports
         Target = Generation.Gen4 | Generation.Gen5,
         LibraryName = "libKernel")]
     public static int PthreadCondInit(CpuContext ctx) => PthreadCondInitCore(ctx, ctx[CpuRegister.Rdi]);
+
+    [SysAbiExport(
+        Nid = "SreZybSRWpU",
+        ExportName = "_Cnd_init",
+        Target = Generation.Gen5,
+        LibraryName = "libc")]
+    public static int CxxCondInit(CpuContext ctx) => PthreadCondInitCore(ctx, ctx[CpuRegister.Rdi]);
 
     [SysAbiExport(
         Nid = "0TyVk4MSLt0",

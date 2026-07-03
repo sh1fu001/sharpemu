@@ -528,6 +528,8 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 	private const int CTX_MXCSR = 52;
 
+	private const int CTX_EFLAGS = 68;
+
 	private const int CTX_RAX = 120;
 
 	private const int CTX_RCX = 128;
@@ -578,6 +580,8 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 	private const uint MEM_COMMIT = 4096u;
 
 	private const uint MEM_RESERVE = 8192u;
+
+	private const uint MEM_DECOMMIT = 16384u;
 
 	private const uint MEM_FREE = 65536u;
 
@@ -3579,6 +3583,17 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		{
 			reason = "guest thread stack pointer is zero";
 			return GuestNativeCallExitReason.Exception;
+		}
+		if (!IsExecutableGuestAddress(entryPoint))
+		{
+			// A guest thread was created with an entry point that is not mapped as executable
+			// (commonly a garbage/sentinel value produced by an unimplemented IL2CPP method lookup).
+			// Jumping there would raise an uncatchable native execute fault that takes down the whole
+			// emulator; instead, log it and let this worker thread exit cleanly so the rest of the
+			// process keeps running.
+			reason = $"guest thread '{name}' has non-executable entry point 0x{entryPoint:X16}";
+			Console.Error.WriteLine($"[LOADER][WARN] {reason}; skipping thread.");
+			return GuestNativeCallExitReason.Returned;
 		}
 		const uint stubSize = 512u;
 		void* ptr = VirtualAlloc(null, stubSize, 12288u, 64u);

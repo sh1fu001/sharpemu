@@ -747,6 +747,85 @@ public static class KernelPthreadExtendedCompatExports
     }
 
     [SysAbiExport(
+        Nid = "P41kTWUS3EI",
+        ExportName = "scePthreadGetschedparam",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PthreadGetschedparam(CpuContext ctx)
+    {
+        var thread = ctx[CpuRegister.Rdi];
+        var outPolicyAddress = ctx[CpuRegister.Rsi];
+        var outSchedParamAddress = ctx[CpuRegister.Rdx];
+        if (thread == 0 || outPolicyAddress == 0 || outSchedParamAddress == 0)
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+        }
+
+        PthreadAttrState attributes;
+        lock (_stateGate)
+        {
+            attributes = GetOrCreateThreadStateLocked(thread).Attributes;
+        }
+
+        if (!TryWriteInt32(ctx, outPolicyAddress, attributes.SchedPolicy) ||
+            !TryWriteInt32(ctx, outSchedParamAddress, attributes.SchedPriority))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "oIRFTjoILbg",
+        ExportName = "scePthreadSetschedparam",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PthreadSetschedparam(CpuContext ctx) => PosixPthreadSetschedparam(ctx);
+
+    [SysAbiExport(
+        Nid = "FXPWHNk8Of0",
+        ExportName = "scePthreadAttrGetschedparam",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PthreadAttrGetschedparam(CpuContext ctx)
+    {
+        var attrAddress = ctx[CpuRegister.Rdi];
+        var outSchedParamAddress = ctx[CpuRegister.Rsi];
+        if (attrAddress == 0 || outSchedParamAddress == 0)
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+        }
+
+        PthreadAttrState state;
+        lock (_stateGate)
+        {
+            state = GetOrCreateAttrStateLocked(attrAddress);
+        }
+
+        if (!TryWriteInt32(ctx, outSchedParamAddress, state.SchedPriority))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "GBUY7ywdULE",
+        ExportName = "scePthreadRename",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PthreadRename(CpuContext ctx)
+    {
+        // Renaming is diagnostic-only for the host runtime.
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
         Nid = "4+h9EzwKF4I",
         ExportName = "scePthreadAttrSetschedpolicy",
         Target = Generation.Gen4 | Generation.Gen5,

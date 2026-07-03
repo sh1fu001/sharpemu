@@ -44,6 +44,7 @@ documented.
 | PPSA20591 | Poppy Playtime Chapter 1 | Unknown | Not Tested | No reproducible milestone documented | Unknown; fresh diagnostics required | Unknown | [`PPSA20591.md`](game-notes/PPSA20591.md) |
 | PPSA10112 | SILENT HILL: The Short Message | Unknown | Not Tested | No reproducible milestone documented | Unknown; fresh diagnostics required | Unknown | [`PPSA10112.md`](game-notes/PPSA10112.md) |
 | PPSA02929 | Dreaming Sarah | Unknown | Intro | Splash texture rendered in README capture | Unknown; fresh diagnostics required | Unknown | [`PPSA02929.md`](game-notes/PPSA02929.md) |
+| PPSA09804 | GRIS | 01.001.000 | Booting | Loads IL2CPP metadata + binary registration; best run reaches ~126,000 HLE imports | Missing IL2CPP method pointers/vtables plus FMOD semaphore race | Method/vtable registry, `il2cpp_runtime_invoke` | [`PPSA09804.md`](game-notes/PPSA09804.md) |
 
 The two `Not Tested` rows mean that no current structured evidence is available
 for assigning a boot milestone. They preserve the historical README references

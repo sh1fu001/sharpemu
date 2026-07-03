@@ -19,6 +19,9 @@ public sealed class SelfLoader : ISelfLoader
     private static readonly SharpEmuLogger Log = SharpEmuLog.For("Loader");
 
     private const uint SelfMagic = 0x4F153D1D;
+    // Decrypted PRX/FSELF modules use the same SELF container layout as the main executable but
+    // carry this alternate four-byte signature. The embedded ELF and segment table remain valid.
+    private const uint ModuleSelfMagic = 0x5414F5EE;
     private const ulong SelfSegmentFlag = 0x800;
     private const int PageSize = 0x1000;
     private const ulong ImportStubBaseAddress = 0x0000_7000_0000_0000UL;
@@ -324,7 +327,8 @@ public sealed class SelfLoader : ISelfLoader
             throw new InvalidDataException("Input image is too small to contain an ELF header.");
         }
 
-        if (imageData.Length >= sizeof(uint) && BinaryPrimitives.ReadUInt32BigEndian(imageData[..sizeof(uint)]) == SelfMagic)
+        if (imageData.Length >= sizeof(uint) &&
+            IsSupportedSelfMagic(BinaryPrimitives.ReadUInt32BigEndian(imageData[..sizeof(uint)])))
         {
             var selfHeader = ReadUnmanaged<SelfHeader>(imageData, 0);
             if (!selfHeader.HasKnownLayout || selfHeader.Unknown != 0x22)
@@ -348,6 +352,9 @@ public sealed class SelfLoader : ISelfLoader
 
         return new LoadContext(IsSelf: false, ElfOffset: 0, SelfFileSize: 0, Array.Empty<SelfSegment>());
     }
+
+    private static bool IsSupportedSelfMagic(uint magic) =>
+        magic is SelfMagic or ModuleSelfMagic;
 
     private static ProgramHeader[] ParseProgramHeaders(
         ReadOnlySpan<byte> imageData,
@@ -533,6 +540,23 @@ public sealed class SelfLoader : ISelfLoader
             Console.WriteLine($"Processing {relocations.Count} relocations...");
         }
 
+        var relocationsUseImageBase =
+            elfHeader.Type == 3 ||
+            relocations.Any(
+                relocation =>
+                    IsSupportedRelocationType(relocation.Type) &&
+                    ShouldApplyImageBaseToRelocationOffset(
+                        virtualMemory,
+                        relocation.Offset,
+                        imageBase,
+                        declaredPositionIndependent: false));
+        if (relocationsUseImageBase && elfHeader.Type != 3)
+        {
+            Log.Info(
+                $"Rebasing relocations for proprietary ELF type 0x{elfHeader.Type:X4} " +
+                $"at image base 0x{imageBase:X16}.");
+        }
+
         uint maxSymbolIndex = 0;
         foreach (var relocation in relocations)
         {
@@ -591,7 +615,7 @@ public sealed class SelfLoader : ISelfLoader
             stringTable,
             virtualMemory,
             imageBase,
-            elfHeader.Type == 3,
+            relocationsUseImageBase,
             tlsModuleId,
             descriptors,
             orderedImportNids,
@@ -605,6 +629,7 @@ public sealed class SelfLoader : ISelfLoader
                 elfHeader,
                 virtualMemory,
                 imageBase,
+                relocationsUseImageBase,
                 tlsModuleId,
                 descriptors,
                 orderedImportNids,
@@ -707,6 +732,7 @@ public sealed class SelfLoader : ISelfLoader
         ElfHeader elfHeader,
         IVirtualMemory virtualMemory,
         ulong imageBase,
+        bool relocationsUseImageBase,
         uint tlsModuleId,
         ICollection<RelocationDescriptor> descriptors,
         IList<string> orderedImportNids,
@@ -762,7 +788,7 @@ public sealed class SelfLoader : ISelfLoader
                 stringTable,
                 virtualMemory,
                 imageBase,
-                elfHeader.Type == 3,
+                relocationsUseImageBase,
                 tlsModuleId,
                 descriptors,
                 orderedImportNids,
@@ -943,6 +969,40 @@ public sealed class SelfLoader : ISelfLoader
                 RelocationValueKind.Pointer,
                 IsDataImport: GetSymbolType(symbol.Info) == SymbolTypeObject));
         }
+    }
+
+    internal static bool ShouldApplyImageBaseToRelocationOffset(
+        IVirtualMemory virtualMemory,
+        ulong relocationOffset,
+        ulong imageBase,
+        bool declaredPositionIndependent)
+    {
+        if (declaredPositionIndependent)
+        {
+            return true;
+        }
+
+        if (TryResolveMappedAddress(
+                virtualMemory,
+                relocationOffset,
+                0,
+                sizeof(ulong),
+                out _))
+        {
+            return false;
+        }
+
+        if (relocationOffset > ulong.MaxValue - imageBase)
+        {
+            return false;
+        }
+
+        return TryResolveMappedAddress(
+            virtualMemory,
+            imageBase + relocationOffset,
+            0,
+            sizeof(ulong),
+            out _);
     }
 
     private static void RegisterRuntimeSymbolsAndHooks(
@@ -2418,10 +2478,14 @@ public sealed class SelfLoader : ISelfLoader
         public ulong FileSize => _fileSize;
 
         public bool HasKnownLayout =>
-            _ident0 == 0x4F &&
-            _ident1 == 0x15 &&
-            _ident2 == 0x3D &&
-            _ident3 == 0x1D &&
+            ((_ident0 == 0x4F &&
+              _ident1 == 0x15 &&
+              _ident2 == 0x3D &&
+              _ident3 == 0x1D) ||
+             (_ident0 == 0x54 &&
+              _ident1 == 0x14 &&
+              _ident2 == 0xF5 &&
+              _ident3 == 0xEE)) &&
             _ident4 == 0x00 &&
             _ident5 == 0x01 &&
             _ident6 == 0x01 &&
