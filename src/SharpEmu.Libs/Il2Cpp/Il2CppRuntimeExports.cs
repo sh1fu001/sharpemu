@@ -195,6 +195,110 @@ public static class Il2CppRuntimeExports
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
 
+    // ---- Internal-call (icall) registry ------------------------------------------------------
+    // The game registers native implementations for its managed internal calls at startup and later
+    // invokes them through the resolved pointer. Left as no-op stubs, resolution returned 0/garbage
+    // and the game crashed calling through it; a real name->pointer registry fixes that.
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_add_internal_call", ExportName = "il2cpp_add_internal_call", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int AddInternalCall(CpuContext ctx)
+    {
+        // void il2cpp_add_internal_call(const char* name, Il2CppMethodPointer method)
+        Il2CppStrings.TryReadAscii(ctx, ctx[CpuRegister.Rdi], 1024, out var name);
+        Il2CppRuntime.Instance.RegisterInternalCall(name, unchecked((nint)ctx[CpuRegister.Rsi]));
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_resolve_icall", ExportName = "il2cpp_resolve_icall", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int ResolveIcall(CpuContext ctx)
+    {
+        // Il2CppMethodPointer il2cpp_resolve_icall(const char* name)
+        Il2CppStrings.TryReadAscii(ctx, ctx[CpuRegister.Rdi], 1024, out var name);
+        ctx[CpuRegister.Rax] = unchecked((ulong)Il2CppRuntime.Instance.ResolveInternalCall(name));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    // ---- Metadata-backed class identity + real string/array objects --------------------------
+    // These are backed by the parsed global-metadata.dat (see Il2CppRuntime). They return real,
+    // dereferenceable data - crucially, String objects with a correct length field - instead of the
+    // generic 0 stub, which is what the compiled game reads inline during startup.
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_class_from_name", ExportName = "il2cpp_class_from_name", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int ClassFromName(CpuContext ctx)
+    {
+        // Il2CppClass* il2cpp_class_from_name(Il2CppImage*, const char* namespaze, const char* name)
+        Il2CppStrings.TryReadAscii(ctx, ctx[CpuRegister.Rsi], 512, out var namespaze);
+        Il2CppStrings.TryReadAscii(ctx, ctx[CpuRegister.Rdx], 512, out var name);
+        ctx[CpuRegister.Rax] = unchecked((ulong)Il2CppRuntime.Instance.GetClassFromName(namespaze, name));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_class_get_name", ExportName = "il2cpp_class_get_name", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int ClassGetName(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = unchecked((ulong)Il2CppRuntime.Instance.GetClassName(unchecked((nint)ctx[CpuRegister.Rdi])));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_class_get_namespace", ExportName = "il2cpp_class_get_namespace", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int ClassGetNamespace(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = unchecked((ulong)Il2CppRuntime.Instance.GetClassNamespace(unchecked((nint)ctx[CpuRegister.Rdi])));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_string_new", ExportName = "il2cpp_string_new", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int StringNew(CpuContext ctx)
+    {
+        // Il2CppString* il2cpp_string_new(const char* str) - UTF-8 input.
+        Il2CppStrings.TryReadAscii(ctx, ctx[CpuRegister.Rdi], 0x4000, out var value);
+        ctx[CpuRegister.Rax] = unchecked((ulong)Il2CppRuntime.Instance.NewString(value));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_string_new_len", ExportName = "il2cpp_string_new_len", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int StringNewLen(CpuContext ctx)
+    {
+        // Il2CppString* il2cpp_string_new_len(const char* str, uint32_t length) - UTF-8 input.
+        var address = ctx[CpuRegister.Rdi];
+        var length = (int)Math.Min(ctx[CpuRegister.Rsi], 0x40000);
+        var utf8 = new byte[length];
+        var value = ctx.Memory.TryRead(address, utf8)
+            ? System.Text.Encoding.UTF8.GetString(utf8)
+            : string.Empty;
+        ctx[CpuRegister.Rax] = unchecked((ulong)Il2CppRuntime.Instance.NewString(value));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_string_new_utf16", ExportName = "il2cpp_string_new_utf16", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int StringNewUtf16(CpuContext ctx)
+    {
+        // Il2CppString* il2cpp_string_new_utf16(const uint16_t* text, int32_t len)
+        var address = ctx[CpuRegister.Rdi];
+        var length = (int)Math.Min(ctx[CpuRegister.Rsi], 0x40000);
+        var bytes = new byte[length * sizeof(char)];
+        var value = length > 0 && ctx.Memory.TryRead(address, bytes)
+            ? System.Text.Encoding.Unicode.GetString(bytes)
+            : string.Empty;
+        ctx[CpuRegister.Rax] = unchecked((ulong)Il2CppRuntime.Instance.NewString(value));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_string_length", ExportName = "il2cpp_string_length", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int StringLength(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = unchecked((ulong)(uint)Il2CppRuntime.Instance.GetStringLength(unchecked((nint)ctx[CpuRegister.Rdi])));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(Nid = "__il2cpp_dyn_string_chars", ExportName = "il2cpp_string_chars", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
+    public static int StringChars(CpuContext ctx)
+    {
+        ctx[CpuRegister.Rax] = unchecked((ulong)Il2CppRuntime.Instance.GetStringChars(unchecked((nint)ctx[CpuRegister.Rdi])));
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
     // ---- GC (no real managed heap here, so collection itself is always a no-op) ---------------
 
     private static int _gcDisabled;
