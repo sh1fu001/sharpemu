@@ -9,6 +9,20 @@ namespace SharpEmu.Tests;
 public sealed class Il2CppRuntimeTests
 {
     [Fact]
+    public void ClassUserData_UsesNonHeaderSlotAndRoundTrips()
+    {
+        var runtime = Il2CppRuntime.Instance;
+        var classHandle = runtime.GetArrayClass(
+            runtime.GetOpaqueHandle("test:userdata-element"),
+            rank: 1);
+        var marker = unchecked((nint)0x1234_5678_9ABC_DEF0);
+
+        Assert.True(Il2CppRuntime.ClassUserDataOffset >= 0x20);
+        Assert.True(runtime.SetClassUserData(classHandle, marker));
+        Assert.Equal(marker, runtime.GetClassUserData(classHandle));
+    }
+
+    [Fact]
     public void NewArray_ProducesStableLengthAndByteLength()
     {
         var runtime = Il2CppRuntime.Instance;

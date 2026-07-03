@@ -32,6 +32,20 @@ public sealed class Il2CppRuntime
     // Well-established version-24 Il2CppClass field offsets used for inline reads by generated code.
     private const int Class_Name = 0x10;
     private const int Class_Namespace = 0x18;
+    private const int Class_ByValArg = 0x20;
+    private const int Class_DeclaringType = 0x50;
+    private const int Class_Parent = 0x58;
+    // Unity 2019.4 exposes this offset through il2cpp_class_get_userdata_offset and then reads and
+    // writes the slot directly. Returning the old generic-stub value (zero) made Unity overwrite the
+    // first pointer in every class object and eventually reinterpret metadata bytes as string sizes.
+    private const int Class_UnityUserData = 0xD0;
+    private const int Class_InstanceSize = 0xF4;
+    private const int Class_ActualSize = 0xF8;
+    private const int Class_Flags = 0x110;
+    private const int Class_Token = 0x114;
+    private const int Class_MethodCount = 0x118;
+    private const int Class_FieldCount = 0x11C;
+    private const int Class_NestedTypeCount = 0x120;
     private const int ClassBlockSize = 0x160; // over-allocated + zeroed; unknown fields read as 0.
 
     private static readonly SharpEmuLogger Log = SharpEmuLog.For("Il2Cpp");
@@ -68,8 +82,11 @@ public sealed class Il2CppRuntime
     private readonly Dictionary<nint, nint> _classNamespacePtr = new();
     private readonly Dictionary<(nint Class, string Field), nint> _fieldInfoByName = new();
     private readonly HashSet<nint> _ownedFieldInfos = new();
+    private readonly Dictionary<nint, (int TypeIndex, int LocalIndex, int GlobalIndex)> _fieldByHandle = new();
     private readonly Dictionary<int, nint> _methodByIndex = new();
     private readonly Dictionary<nint, int> _methodIndexByHandle = new();
+    private readonly Dictionary<nint, uint> _customAttributeTokenByHandle = new();
+    private readonly Dictionary<uint, nint> _customAttributeByToken = new();
     private readonly Dictionary<(nint ElementClass, uint Rank, bool Bounded), nint> _arrayClassByShape = new();
     private readonly Dictionary<nint, nuint> _arrayElementSizeByClass = new();
     private readonly Dictionary<nint, (ulong Length, ulong ByteLength)> _ownedArrays = new();
@@ -123,6 +140,13 @@ public sealed class Il2CppRuntime
     private const int OpaqueHandleSize = 0x100;
 
     private readonly Dictionary<string, nint> _opaqueHandles = new(StringComparer.Ordinal);
+    private readonly Dictionary<int, nint> _imageByIndex = new();
+    private readonly Dictionary<nint, int> _imageIndexByHandle = new();
+    private readonly Dictionary<int, nint> _assemblyByImageIndex = new();
+    private readonly Dictionary<nint, int> _imageIndexByAssembly = new();
+    private readonly Dictionary<int, nint> _imageNameByIndex = new();
+    private readonly Dictionary<int, nint> _assemblyNameByImageIndex = new();
+    private nint _domainAssemblies;
 
     /// <summary>Returns a stable, non-null, zeroed handle for a named runtime object (allocated once).</summary>
     public unsafe nint GetOpaqueHandle(string key)
@@ -137,6 +161,158 @@ public sealed class Il2CppRuntime
             var handle = (nint)NativeMemory.AllocZeroed(OpaqueHandleSize);
             _opaqueHandles[key] = handle;
             return handle;
+        }
+    }
+
+    public nint GetImage(string name)
+    {
+        lock (_gate)
+        {
+            var imageIndex = _metadata?.FindImageIndex(name) ?? -1;
+            return imageIndex < 0 ? 0 : GetOrCreateImage(imageIndex);
+        }
+    }
+
+    public nint GetAssembly(string name)
+    {
+        lock (_gate)
+        {
+            var imageIndex = _metadata?.FindImageIndex(name) ?? -1;
+            return imageIndex < 0 ? 0 : GetOrCreateAssembly(imageIndex);
+        }
+    }
+
+    public nint GetImageFromAssembly(nint assemblyHandle)
+    {
+        lock (_gate)
+        {
+            return _imageIndexByAssembly.TryGetValue(assemblyHandle, out var imageIndex)
+                ? GetOrCreateImage(imageIndex)
+                : 0;
+        }
+    }
+
+    public nint GetAssemblyFromImage(nint imageHandle)
+    {
+        lock (_gate)
+        {
+            return _imageIndexByHandle.TryGetValue(imageHandle, out var imageIndex)
+                ? GetOrCreateAssembly(imageIndex)
+                : 0;
+        }
+    }
+
+    public nint GetClassImage(nint classHandle)
+    {
+        lock (_gate)
+        {
+            if (_metadata is null || !_typeIndexByClass.TryGetValue(classHandle, out var typeIndex))
+            {
+                return 0;
+            }
+
+            var imageIndex = _metadata.FindImageIndexForType(typeIndex);
+            return imageIndex < 0 ? 0 : GetOrCreateImage(imageIndex);
+        }
+    }
+
+    public nint GetClassAssemblyName(nint classHandle)
+    {
+        lock (_gate)
+        {
+            if (_metadata is null || !_typeIndexByClass.TryGetValue(classHandle, out var typeIndex))
+            {
+                return GetEmptyCStringLocked();
+            }
+
+            var imageIndex = _metadata.FindImageIndexForType(typeIndex);
+            if (imageIndex < 0)
+            {
+                return GetEmptyCStringLocked();
+            }
+
+            if (_assemblyNameByImageIndex.TryGetValue(imageIndex, out var existing))
+            {
+                return existing;
+            }
+
+            var assemblyName = Path.GetFileNameWithoutExtension(_metadata.GetImageName(imageIndex));
+            var pointer = AllocateCString(assemblyName);
+            _assemblyNameByImageIndex[imageIndex] = pointer;
+            return pointer;
+        }
+    }
+
+    public nint GetImageName(nint imageHandle)
+    {
+        lock (_gate)
+        {
+            if (_metadata is null || !_imageIndexByHandle.TryGetValue(imageHandle, out var imageIndex))
+            {
+                return GetEmptyCStringLocked();
+            }
+
+            if (_imageNameByIndex.TryGetValue(imageIndex, out var existing))
+            {
+                return existing;
+            }
+
+            var pointer = AllocateCString(_metadata.GetImageName(imageIndex));
+            _imageNameByIndex[imageIndex] = pointer;
+            return pointer;
+        }
+    }
+
+    public int GetImageClassCount(nint imageHandle)
+    {
+        lock (_gate)
+        {
+            return _metadata is not null &&
+                   _imageIndexByHandle.TryGetValue(imageHandle, out var imageIndex)
+                ? _metadata.GetImageTypeCount(imageIndex)
+                : 0;
+        }
+    }
+
+    public nint GetImageClass(nint imageHandle, int ordinal)
+    {
+        lock (_gate)
+        {
+            if (_metadata is null ||
+                ordinal < 0 ||
+                !_imageIndexByHandle.TryGetValue(imageHandle, out var imageIndex))
+            {
+                return 0;
+            }
+
+            var count = _metadata.GetImageTypeCount(imageIndex);
+            var start = _metadata.GetImageTypeStart(imageIndex);
+            return ordinal >= count || start < 0 ? 0 : GetOrCreateClass(start + ordinal);
+        }
+    }
+
+    public unsafe nint GetDomainAssemblies(out nuint count)
+    {
+        lock (_gate)
+        {
+            count = (nuint)(_metadata?.ImageCount ?? 0);
+            if (count == 0)
+            {
+                return 0;
+            }
+
+            if (_domainAssemblies == 0)
+            {
+                var block = (nint*)NativeMemory.AllocZeroed(count, (nuint)sizeof(nint));
+                for (var i = 0; i < (int)count; i++)
+                {
+                    block[i] = GetOrCreateAssembly(i);
+                }
+
+                _domainAssemblies = (nint)block;
+            }
+
+            return _domainAssemblies;
         }
     }
 
@@ -183,6 +359,22 @@ public sealed class Il2CppRuntime
         }
 
         return GetOrCreateClass(typeIndex);
+    }
+
+    public nint GetClassFromName(nint imageHandle, string @namespace, string name)
+    {
+        if (_metadata is null)
+        {
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            var typeIndex = _imageIndexByHandle.TryGetValue(imageHandle, out var imageIndex)
+                ? _metadata.FindTypeIndex(imageIndex, @namespace, name)
+                : _metadata.FindTypeIndex(@namespace, name);
+            return typeIndex < 0 ? 0 : GetOrCreateClass(typeIndex);
+        }
     }
 
     public nint GetClassName(nint classHandle)
@@ -311,7 +503,7 @@ public sealed class Il2CppRuntime
         }
 
         var pairCount = _metadata.MetadataUsagePairCount;
-        int strings = 0, typeInfos = 0, types = 0, writeFailures = 0;
+        int strings = 0, typeInfos = 0, types = 0, methods = 0, fields = 0, writeFailures = 0;
 
         for (var i = 0; i < pairCount; i++)
         {
@@ -362,8 +554,39 @@ public sealed class Il2CppRuntime
 
                     break;
 
-                // MethodDef(3)/FieldInfo(4)/MethodRef(6) need full method/field construction; leaving
-                // their slots untouched keeps the previous behavior for those specific usages.
+                case 3: // kIl2CppMetadataUsageMethodDef -> MethodInfo*
+                    resolved = GetOrCreateMethod(sourceIndex);
+                    if (resolved != 0)
+                    {
+                        methods++;
+                    }
+
+                    break;
+
+                case 4: // kIl2CppMetadataUsageFieldInfo -> FieldInfo*
+                    if (_metadata.TryGetFieldReference(sourceIndex, out var fieldTypeIndex, out var fieldOrdinal))
+                    {
+                        var declaringType = _codeRegistration.TryGetClassTypeDefinitionIndex(fieldTypeIndex);
+                        resolved = GetOrCreateField(declaringType, fieldOrdinal);
+                        if (resolved != 0)
+                        {
+                            fields++;
+                        }
+                    }
+
+                    break;
+
+                case 6: // kIl2CppMetadataUsageMethodRef -> inflated MethodInfo*
+                    var methodDefinitionIndex =
+                        _codeRegistration.TryGetMethodDefinitionIndexFromSpec(sourceIndex);
+                    resolved = GetOrCreateMethod(methodDefinitionIndex);
+                    if (resolved != 0)
+                    {
+                        methods++;
+                    }
+
+                    break;
+
                 default:
                     continue;
             }
@@ -376,7 +599,8 @@ public sealed class Il2CppRuntime
 
         Log.Info(
             $"Resolved il2cpp metadata usages: {strings} string literals, {typeInfos} type-infos, " +
-            $"{types} types ({pairCount} pairs, {writeFailures} slot writes failed).");
+            $"{types} types, {methods} methods, {fields} fields " +
+            $"({pairCount} pairs, {writeFailures} slot writes failed).");
     }
 
     /// <summary>Instance size (bytes) for a class handle, or 0 if unavailable.</summary>
@@ -422,19 +646,13 @@ public sealed class Il2CppRuntime
                 return 0;
             }
 
-            var offset = _codeRegistration.GetFieldOffset(typeIndex, localIndex);
-            if (offset < 0)
+            var handle = GetOrCreateField(typeIndex, localIndex);
+            if (handle == 0)
             {
                 return 0;
             }
 
-            var block = (byte*)NativeMemory.AllocZeroed(FieldInfoSize);
-            *(nint*)(block + FieldInfo_Name) = AllocateCString(fieldName);
-            *(nint*)(block + FieldInfo_Parent) = classHandle;
-            *(int*)(block + FieldInfo_Offset) = offset;
-            var handle = (nint)block;
             _fieldInfoByName[(classHandle, fieldName)] = handle;
-            _ownedFieldInfos.Add(handle);
             return handle;
         }
     }
@@ -452,6 +670,89 @@ public sealed class Il2CppRuntime
             return *(int*)((byte*)fieldHandle + FieldInfo_Offset);
         }
     }
+
+    public nint GetFieldAtOrdinal(nint classHandle, int ordinal)
+    {
+        lock (_gate)
+        {
+            if (_metadata is null ||
+                ordinal < 0 ||
+                !_typeIndexByClass.TryGetValue(classHandle, out var typeIndex))
+            {
+                return 0;
+            }
+
+            return ordinal >= _metadata.GetFieldCount(typeIndex)
+                ? 0
+                : GetOrCreateField(typeIndex, ordinal);
+        }
+    }
+
+    public int GetClassFieldCount(nint classHandle)
+    {
+        lock (_gate)
+        {
+            return _metadata is not null && _typeIndexByClass.TryGetValue(classHandle, out var typeIndex)
+                ? _metadata.GetFieldCount(typeIndex)
+                : 0;
+        }
+    }
+
+    public unsafe nint GetFieldName(nint fieldHandle)
+    {
+        lock (_gate)
+        {
+            return _fieldByHandle.ContainsKey(fieldHandle)
+                ? *(nint*)((byte*)fieldHandle + FieldInfo_Name)
+                : 0;
+        }
+    }
+
+    public unsafe nint GetFieldParent(nint fieldHandle)
+    {
+        lock (_gate)
+        {
+            return _fieldByHandle.ContainsKey(fieldHandle)
+                ? *(nint*)((byte*)fieldHandle + FieldInfo_Parent)
+                : 0;
+        }
+    }
+
+    public unsafe nint GetFieldType(nint fieldHandle)
+    {
+        lock (_gate)
+        {
+            return _fieldByHandle.ContainsKey(fieldHandle)
+                ? *(nint*)((byte*)fieldHandle + 0x08)
+                : 0;
+        }
+    }
+
+    public uint GetFieldToken(nint fieldHandle)
+    {
+        lock (_gate)
+        {
+            return _metadata is not null && _fieldByHandle.TryGetValue(fieldHandle, out var field)
+                ? _metadata.GetFieldToken(field.GlobalIndex)
+                : 0;
+        }
+    }
+
+    public uint GetFieldFlags(nint fieldHandle)
+    {
+        lock (_gate)
+        {
+            return _metadata is not null &&
+                   _codeRegistration is not null &&
+                   _fieldByHandle.TryGetValue(fieldHandle, out var field)
+                ? _codeRegistration.GetTypeAttributes(
+                    _metadata.GetFieldTypeIndex(field.GlobalIndex))
+                : 0;
+        }
+    }
+
+    public bool FieldHasAttribute(nint fieldHandle, nint attributeClass) =>
+        HasAttribute(GetFieldToken(fieldHandle), attributeClass);
 
     public nint GetMethodAtOrdinal(nint classHandle, int ordinal)
     {
@@ -495,6 +796,203 @@ public sealed class Il2CppRuntime
             return _metadata is not null && _typeIndexByClass.TryGetValue(classHandle, out var typeIndex)
                 ? _metadata.GetTypeFlags(typeIndex)
                 : 0;
+        }
+    }
+
+    public uint GetClassToken(nint classHandle)
+    {
+        lock (_gate)
+        {
+            return _metadata is not null && _typeIndexByClass.TryGetValue(classHandle, out var typeIndex)
+                ? _metadata.GetTypeToken(typeIndex)
+                : 0;
+        }
+    }
+
+    public nint GetClassType(nint classHandle)
+    {
+        lock (_gate)
+        {
+            if (_metadata is null ||
+                _codeRegistration is null ||
+                !_typeIndexByClass.TryGetValue(classHandle, out var typeIndex))
+            {
+                return 0;
+            }
+
+            return unchecked((nint)_codeRegistration.GetTypePointer(
+                _metadata.GetTypeByValTypeIndex(typeIndex)));
+        }
+    }
+
+    public nint GetClassFromType(nint typeHandle)
+    {
+        lock (_gate)
+        {
+            if (_codeRegistration is null || typeHandle == 0)
+            {
+                return 0;
+            }
+
+            var registrationIndex =
+                _codeRegistration.FindTypeRegistrationIndex(unchecked((ulong)typeHandle));
+            var typeDefinitionIndex =
+                _codeRegistration.TryGetClassTypeDefinitionIndex(registrationIndex);
+            return typeDefinitionIndex < 0 ? 0 : GetOrCreateClass(typeDefinitionIndex);
+        }
+    }
+
+    public nint GetClassDeclaringType(nint classHandle)
+    {
+        lock (_gate)
+        {
+            if (_metadata is null || !_typeIndexByClass.TryGetValue(classHandle, out var typeIndex))
+            {
+                return 0;
+            }
+
+            var declaringType = _metadata.GetTypeDeclaringTypeIndex(typeIndex);
+            return declaringType < 0 ? 0 : GetOrCreateClass(declaringType);
+        }
+    }
+
+    public nint GetClassParent(nint classHandle)
+    {
+        lock (_gate)
+        {
+            if (_metadata is null ||
+                _codeRegistration is null ||
+                !_typeIndexByClass.TryGetValue(classHandle, out var typeIndex))
+            {
+                return 0;
+            }
+
+            var parentRegistrationIndex = _metadata.GetTypeParentTypeIndex(typeIndex);
+            var parentTypeDefinition =
+                _codeRegistration.TryGetClassTypeDefinitionIndex(parentRegistrationIndex);
+            return parentTypeDefinition < 0 ? 0 : GetOrCreateClass(parentTypeDefinition);
+        }
+    }
+
+    public nint GetNestedTypeAtOrdinal(nint classHandle, int ordinal)
+    {
+        lock (_gate)
+        {
+            if (_metadata is null ||
+                ordinal < 0 ||
+                !_typeIndexByClass.TryGetValue(classHandle, out var typeIndex))
+            {
+                return 0;
+            }
+
+            var nestedType = _metadata.GetNestedTypeIndex(typeIndex, ordinal);
+            return nestedType < 0 ? 0 : GetOrCreateClass(nestedType);
+        }
+    }
+
+    public bool IsClassGeneric(nint classHandle)
+    {
+        lock (_gate)
+        {
+            return _metadata is not null &&
+                   _typeIndexByClass.TryGetValue(classHandle, out var typeIndex) &&
+                   _metadata.GetTypeGenericContainerIndex(typeIndex) >= 0;
+        }
+    }
+
+    public bool IsClassSubclassOf(nint classHandle, nint parentHandle, bool checkInterfaces)
+    {
+        if (classHandle == 0 || parentHandle == 0)
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            var current = classHandle;
+            var remaining = _metadata?.TypeCount ?? 0;
+            while (current != 0 && remaining-- > 0)
+            {
+                if (current == parentHandle)
+                {
+                    return true;
+                }
+
+                current = GetClassParent(current);
+            }
+
+            // Interface tables are not needed by Unity's serializer path yet. Keep the parameter in
+            // the contract so assignability can add them without changing callers.
+            _ = checkInterfaces;
+            return false;
+        }
+    }
+
+    public bool ClassHasAttribute(nint classHandle, nint attributeClass) =>
+        HasAttribute(GetClassToken(classHandle), attributeClass);
+
+    public bool MethodHasAttribute(nint methodHandle, nint attributeClass) =>
+        HasAttribute(GetMethodToken(methodHandle), attributeClass);
+
+    public nint GetCustomAttributesForClass(nint classHandle) =>
+        GetOrCreateCustomAttributeInfo(GetClassToken(classHandle));
+
+    public nint GetCustomAttributesForMethod(nint methodHandle) =>
+        GetOrCreateCustomAttributeInfo(GetMethodToken(methodHandle));
+
+    public bool CustomAttributesHaveAttribute(nint customAttributeInfo, nint attributeClass)
+    {
+        lock (_gate)
+        {
+            return _customAttributeTokenByHandle.TryGetValue(customAttributeInfo, out var token) &&
+                   HasAttribute(token, attributeClass);
+        }
+    }
+
+    /// <summary>
+    /// Offset of Unity's engine-owned userdata slot in the Unity 2019.4 <c>Il2CppClass</c> layout.
+    /// The offset is deliberately part of the HLE contract: guest code uses it for direct access.
+    /// </summary>
+    public static int ClassUserDataOffset => Class_UnityUserData;
+
+    /// <summary>Stores Unity's native type metadata pointer in a class created by this runtime.</summary>
+    public unsafe bool SetClassUserData(nint classHandle, nint userData)
+    {
+        if (classHandle == 0)
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (!_typeIndexByClass.ContainsKey(classHandle) &&
+                !_classNamePtr.ContainsKey(classHandle))
+            {
+                return false;
+            }
+
+            *(nint*)((byte*)classHandle + Class_UnityUserData) = userData;
+            return true;
+        }
+    }
+
+    /// <summary>Returns the engine userdata pointer associated with a runtime-owned class.</summary>
+    public unsafe nint GetClassUserData(nint classHandle)
+    {
+        if (classHandle == 0)
+        {
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            if (!_typeIndexByClass.ContainsKey(classHandle) &&
+                !_classNamePtr.ContainsKey(classHandle))
+            {
+                return 0;
+            }
+
+            return *(nint*)((byte*)classHandle + Class_UnityUserData);
         }
     }
 
@@ -579,6 +1077,32 @@ public sealed class Il2CppRuntime
             return TryGetMethodIndex(methodHandle, out var methodIndex) && _metadata is not null
                 ? (uint)_metadata.GetMethodParameterCount(methodIndex)
                 : 0;
+        }
+    }
+
+    public bool IsMethodGeneric(nint methodHandle)
+    {
+        lock (_gate)
+        {
+            return TryGetMethodIndex(methodHandle, out var methodIndex) &&
+                   _metadata is not null &&
+                   _metadata.GetMethodGenericContainerIndex(methodIndex) >= 0;
+        }
+    }
+
+    public nint GetMethodReturnType(nint methodHandle)
+    {
+        lock (_gate)
+        {
+            if (!TryGetMethodIndex(methodHandle, out var methodIndex) ||
+                _metadata is null ||
+                _codeRegistration is null)
+            {
+                return 0;
+            }
+
+            return unchecked((nint)_codeRegistration.GetTypePointer(
+                _metadata.GetMethodReturnTypeIndex(methodIndex)));
         }
     }
 
@@ -772,8 +1296,69 @@ public sealed class Il2CppRuntime
             var handle = AllocateClassBlock(typeIndex);
             _classByTypeIndex[typeIndex] = handle;
             _typeIndexByClass[handle] = typeIndex;
+            PopulateClassBlock(handle, typeIndex);
             return handle;
         }
+    }
+
+    private unsafe nint GetOrCreateImage(int imageIndex)
+    {
+        if (_metadata is null || (uint)imageIndex >= (uint)_metadata.ImageCount)
+        {
+            return 0;
+        }
+
+        if (_imageByIndex.TryGetValue(imageIndex, out var existing))
+        {
+            return existing;
+        }
+
+        var block = (nint*)NativeMemory.AllocZeroed(OpaqueHandleSize);
+        var handle = (nint)block;
+        _imageByIndex[imageIndex] = handle;
+        _imageIndexByHandle[handle] = imageIndex;
+        block[0] = GetImageName(handle);
+        block[1] = GetOrCreateAssembly(imageIndex);
+        return handle;
+    }
+
+    private unsafe nint GetOrCreateAssembly(int imageIndex)
+    {
+        if (_metadata is null || (uint)imageIndex >= (uint)_metadata.ImageCount)
+        {
+            return 0;
+        }
+
+        if (_assemblyByImageIndex.TryGetValue(imageIndex, out var existing))
+        {
+            return existing;
+        }
+
+        var block = (nint*)NativeMemory.AllocZeroed(OpaqueHandleSize);
+        var handle = (nint)block;
+        _assemblyByImageIndex[imageIndex] = handle;
+        _imageIndexByAssembly[handle] = imageIndex;
+        // Do not recursively request the image here: GetOrCreateImage may be constructing it.
+        block[1] = GetClassAssemblyNameForImage(imageIndex);
+        return handle;
+    }
+
+    private nint GetClassAssemblyNameForImage(int imageIndex)
+    {
+        if (_metadata is null)
+        {
+            return GetEmptyCStringLocked();
+        }
+
+        if (_assemblyNameByImageIndex.TryGetValue(imageIndex, out var existing))
+        {
+            return existing;
+        }
+
+        var pointer = AllocateCString(
+            Path.GetFileNameWithoutExtension(_metadata.GetImageName(imageIndex)));
+        _assemblyNameByImageIndex[imageIndex] = pointer;
+        return pointer;
     }
 
     private unsafe nint GetOrCreateMethod(int methodIndex)
@@ -791,6 +1376,11 @@ public sealed class Il2CppRuntime
         var block = (byte*)NativeMemory.AllocZeroed(MethodInfoSize);
         *(nint*)(block + MethodInfo_Name) = AllocateCString(_metadata.GetMethodName(methodIndex));
         *(nint*)(block + MethodInfo_Class) = GetOrCreateClass(_metadata.GetMethodDeclaringType(methodIndex));
+        if (_codeRegistration is not null)
+        {
+            *(nint*)(block + 0x20) = unchecked((nint)_codeRegistration.GetTypePointer(
+                _metadata.GetMethodReturnTypeIndex(methodIndex)));
+        }
         *(uint*)(block + MethodInfo_Token) = _metadata.GetMethodToken(methodIndex);
         *(ushort*)(block + MethodInfo_Flags) = _metadata.GetMethodFlags(methodIndex);
         *(ushort*)(block + MethodInfo_IfFlags) = _metadata.GetMethodImplementationFlags(methodIndex);
@@ -801,6 +1391,109 @@ public sealed class Il2CppRuntime
         _methodByIndex[methodIndex] = handle;
         _methodIndexByHandle[handle] = methodIndex;
         return handle;
+    }
+
+    private unsafe nint GetOrCreateField(int typeIndex, int localFieldIndex)
+    {
+        if (_metadata is null ||
+            _codeRegistration is null ||
+            (uint)typeIndex >= (uint)_metadata.TypeCount ||
+            localFieldIndex < 0)
+        {
+            return 0;
+        }
+
+        var fieldStart = _metadata.GetFieldStart(typeIndex);
+        var fieldCount = _metadata.GetFieldCount(typeIndex);
+        if (fieldStart < 0 || localFieldIndex >= fieldCount)
+        {
+            return 0;
+        }
+
+        var globalFieldIndex = fieldStart + localFieldIndex;
+        if ((uint)globalFieldIndex >= (uint)_metadata.FieldCount)
+        {
+            return 0;
+        }
+
+        var classHandle = GetOrCreateClass(typeIndex);
+        var fieldName = _metadata.GetFieldName(globalFieldIndex);
+        if (_fieldInfoByName.TryGetValue((classHandle, fieldName), out var existing))
+        {
+            return existing;
+        }
+
+        var block = (byte*)NativeMemory.AllocZeroed(FieldInfoSize);
+        *(nint*)(block + FieldInfo_Name) = AllocateCString(fieldName);
+        *(nint*)(block + 0x08) = unchecked((nint)_codeRegistration.GetTypePointer(
+            _metadata.GetFieldTypeIndex(globalFieldIndex)));
+        *(nint*)(block + FieldInfo_Parent) = classHandle;
+        *(int*)(block + FieldInfo_Offset) = _codeRegistration.GetFieldOffset(typeIndex, localFieldIndex);
+        *(uint*)(block + 0x1C) = _metadata.GetFieldToken(globalFieldIndex);
+
+        var handle = (nint)block;
+        _fieldInfoByName[(classHandle, fieldName)] = handle;
+        _ownedFieldInfos.Add(handle);
+        _fieldByHandle[handle] = (typeIndex, localFieldIndex, globalFieldIndex);
+        return handle;
+    }
+
+    private bool HasAttribute(uint ownerToken, nint attributeClass)
+    {
+        lock (_gate)
+        {
+            if (ownerToken == 0 ||
+                attributeClass == 0 ||
+                _metadata is null ||
+                _codeRegistration is null ||
+                !_typeIndexByClass.TryGetValue(attributeClass, out var wantedTypeDefinition))
+            {
+                return false;
+            }
+
+            foreach (var attributeTypeIndex in _metadata.GetCustomAttributeTypeIndices(ownerToken))
+            {
+                if (_codeRegistration.TryGetClassTypeDefinitionIndex(attributeTypeIndex) ==
+                    wantedTypeDefinition)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
+    private unsafe nint GetOrCreateCustomAttributeInfo(uint ownerToken)
+    {
+        if (ownerToken == 0 || _metadata is null)
+        {
+            return 0;
+        }
+
+        lock (_gate)
+        {
+            if (_customAttributeByToken.TryGetValue(ownerToken, out var existing))
+            {
+                return existing;
+            }
+
+            var attributes = _metadata.GetCustomAttributeTypeIndices(ownerToken);
+            if (attributes.Count == 0)
+            {
+                return 0;
+            }
+
+            // This is opaque to callers except through the custom_attrs_* API. Keep enough inline
+            // information for defensive guest reads while the authoritative token stays host-side.
+            var block = (uint*)NativeMemory.AllocZeroed(0x20);
+            block[0] = ownerToken;
+            block[1] = unchecked((uint)attributes.Count);
+            var handle = (nint)block;
+            _customAttributeByToken[ownerToken] = handle;
+            _customAttributeTokenByHandle[handle] = ownerToken;
+            return handle;
+        }
     }
 
     private bool TryGetMethodIndex(nint methodHandle, out int methodIndex)
@@ -825,6 +1518,52 @@ public sealed class Il2CppRuntime
         }
 
         return (nint)block;
+    }
+
+    private unsafe void PopulateClassBlock(nint classHandle, int typeIndex)
+    {
+        if (_metadata is null || classHandle == 0)
+        {
+            return;
+        }
+
+        var block = (byte*)classHandle;
+        if (_codeRegistration is not null)
+        {
+            var byValType = _codeRegistration.GetTypePointer(
+                _metadata.GetTypeByValTypeIndex(typeIndex));
+            if (byValType != 0 && _reader is not null)
+            {
+                Span<byte> typeBytes = new(block + Class_ByValArg, 16);
+                _ = _reader.TryReadBytes(byValType, typeBytes);
+            }
+
+            var parentRegistrationIndex = _metadata.GetTypeParentTypeIndex(typeIndex);
+            var parentType = _codeRegistration.TryGetClassTypeDefinitionIndex(parentRegistrationIndex);
+            if (parentType >= 0)
+            {
+                *(nint*)(block + Class_Parent) = GetOrCreateClass(parentType);
+            }
+
+            var instanceSize = _codeRegistration.GetInstanceSize(typeIndex);
+            *(uint*)(block + Class_InstanceSize) = instanceSize;
+            *(uint*)(block + Class_ActualSize) = instanceSize;
+        }
+
+        var declaringType = _metadata.GetTypeDeclaringTypeIndex(typeIndex);
+        if (declaringType >= 0)
+        {
+            *(nint*)(block + Class_DeclaringType) = GetOrCreateClass(declaringType);
+        }
+
+        *(uint*)(block + Class_Flags) = _metadata.GetTypeFlags(typeIndex);
+        *(uint*)(block + Class_Token) = _metadata.GetTypeToken(typeIndex);
+        *(ushort*)(block + Class_MethodCount) =
+            unchecked((ushort)Math.Min(_metadata.GetMethodCount(typeIndex), ushort.MaxValue));
+        *(ushort*)(block + Class_FieldCount) =
+            unchecked((ushort)Math.Min(_metadata.GetFieldCount(typeIndex), ushort.MaxValue));
+        *(ushort*)(block + Class_NestedTypeCount) =
+            unchecked((ushort)Math.Min(_metadata.GetNestedTypeCount(typeIndex), ushort.MaxValue));
     }
 
     private static unsafe nint AllocateCString(string value)

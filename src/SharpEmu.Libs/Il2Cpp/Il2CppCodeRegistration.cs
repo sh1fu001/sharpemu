@@ -40,6 +40,8 @@ public sealed class Il2CppCodeRegistration
     // 8-byte slot and followed by an 8-byte pointer).
     private const int OffTypesCount = 0x30;
     private const int OffTypesPtr = 0x38;
+    private const int OffMethodSpecsCount = 0x40;
+    private const int OffMethodSpecsPtr = 0x48;
     private const int OffFieldOffsetsCount = 0x50;
     private const int OffFieldOffsetsPtr = 0x58;
     private const int OffTypeDefSizesCount = 0x60;
@@ -63,11 +65,14 @@ public sealed class Il2CppCodeRegistration
     private readonly ulong _typeDefSizesPtr;
     private readonly ulong _typesPtr;
     private readonly int _typesRegistrationCount;
+    private readonly ulong _methodSpecsPtr;
+    private readonly int _methodSpecsCount;
     private readonly ulong _metadataUsagesPtr;
     private readonly int _metadataUsagesCount;
     private readonly bool _fieldOffsetsArePointers;
     private readonly bool _typeDefSizesArePointers;
     private readonly int _typeCount;
+    private Dictionary<ulong, int>? _typeIndexByPointer;
 
     /// <summary>Virtual address of the located Il2CppMetadataRegistration structure.</summary>
     public ulong MetadataRegistrationAddress { get; }
@@ -85,6 +90,8 @@ public sealed class Il2CppCodeRegistration
         ulong typeDefSizesPtr,
         ulong typesPtr,
         int typesRegistrationCount,
+        ulong methodSpecsPtr,
+        int methodSpecsCount,
         ulong metadataUsagesPtr,
         int metadataUsagesCount,
         bool fieldOffsetsArePointers,
@@ -98,6 +105,8 @@ public sealed class Il2CppCodeRegistration
         _typeDefSizesPtr = typeDefSizesPtr;
         _typesPtr = typesPtr;
         _typesRegistrationCount = typesRegistrationCount;
+        _methodSpecsPtr = methodSpecsPtr;
+        _methodSpecsCount = methodSpecsCount;
         _metadataUsagesPtr = metadataUsagesPtr;
         _metadataUsagesCount = metadataUsagesCount;
         _fieldOffsetsArePointers = fieldOffsetsArePointers;
@@ -156,6 +165,8 @@ public sealed class Il2CppCodeRegistration
         // metadataUsages table is fine (older/AOT builds); the fields degrade to "no usages".
         TryReadU32(reader, metaReg + OffTypesCount, out var typesRegCount);
         TryReadU64(reader, metaReg + OffTypesPtr, out var typesPtr);
+        TryReadU32(reader, metaReg + OffMethodSpecsCount, out var methodSpecsCount);
+        TryReadU64(reader, metaReg + OffMethodSpecsPtr, out var methodSpecsPtr);
         TryReadU64(reader, metaReg + OffMetadataUsagesCount, out var usagesCount);
         TryReadU64(reader, metaReg + OffMetadataUsagesPtr, out var usagesPtr);
         var usagesInModule = usagesPtr >= moduleBase && usagesPtr < moduleEnd;
@@ -167,6 +178,8 @@ public sealed class Il2CppCodeRegistration
             typeDefSizesPtr,
             typesPtr,
             (int)typesRegCount,
+            methodSpecsPtr,
+            (int)Math.Min(methodSpecsCount, (uint)int.MaxValue),
             usagesInModule ? usagesPtr : 0,
             usagesInModule ? (int)Math.Min(usagesCount, int.MaxValue) : 0,
             foArePointers,
@@ -198,6 +211,48 @@ public sealed class Il2CppCodeRegistration
         return TryReadU64(_reader, _typesPtr + (ulong)typeIndex * 8, out var typePtr) ? typePtr : 0;
     }
 
+    /// <summary>Returns a types[] registration index for an Il2CppType pointer, or -1.</summary>
+    public int FindTypeRegistrationIndex(ulong typePointer)
+    {
+        if (typePointer == 0 || _typesPtr == 0)
+        {
+            return -1;
+        }
+
+        if (_typeIndexByPointer is null)
+        {
+            var index = new Dictionary<ulong, int>();
+            for (var i = 0; i < _typesRegistrationCount; i++)
+            {
+                var pointer = GetTypePointer(i);
+                if (pointer != 0)
+                {
+                    index.TryAdd(pointer, i);
+                }
+            }
+
+            _typeIndexByPointer = index;
+        }
+
+        return _typeIndexByPointer.TryGetValue(typePointer, out var result) ? result : -1;
+    }
+
+    public uint GetTypeAttributes(int typeIndex)
+    {
+        var typePointer = GetTypePointer(typeIndex);
+        return typePointer != 0 && TryReadU32(_reader, typePointer + 8, out var bitfield)
+            ? bitfield & 0xFFFFu
+            : 0;
+    }
+
+    public uint GetTypeKind(int typeIndex)
+    {
+        var typePointer = GetTypePointer(typeIndex);
+        return typePointer != 0 && TryReadU32(_reader, typePointer + 8, out var bitfield)
+            ? (bitfield >> 16) & 0xFFu
+            : 0;
+    }
+
     /// <summary>
     /// For a types[] index that denotes a plain class/value type, returns its type-definition index
     /// (so the caller can resolve an Il2CppClass); -1 for other type kinds or on any read failure.
@@ -219,6 +274,25 @@ public sealed class Il2CppCodeRegistration
         }
 
         return unchecked((int)(uint)data);
+    }
+
+    /// <summary>
+    /// Resolves an <c>Il2CppMethodSpec</c> index to its non-inflated method-definition index.
+    /// Method specs are 12-byte triples whose first member is MethodDefinitionIndex.
+    /// </summary>
+    public int TryGetMethodDefinitionIndexFromSpec(int methodSpecIndex)
+    {
+        if (_methodSpecsPtr == 0 || (uint)methodSpecIndex >= (uint)_methodSpecsCount)
+        {
+            return -1;
+        }
+
+        return TryReadU32(
+            _reader,
+            _methodSpecsPtr + (ulong)methodSpecIndex * 12,
+            out var methodDefinitionIndex)
+            ? unchecked((int)methodDefinitionIndex)
+            : -1;
     }
 
     /// <summary>Writes a resolved pointer into a metadataUsages destination slot.</summary>
