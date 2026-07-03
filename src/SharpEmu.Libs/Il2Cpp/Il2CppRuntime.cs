@@ -274,6 +274,15 @@ public sealed class Il2CppRuntime
                 Log.Info(
                     $"Located Il2CppMetadataRegistration @0x{_codeRegistration.MetadataRegistrationAddress:X16} " +
                     $"(System.Object instance_size=0x{_codeRegistration.ObjectInstanceSizeProbe:X}).");
+
+                try
+                {
+                    ResolveMetadataUsagesLocked();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning($"IL2CPP metadata-usage resolution failed: {ex.GetType().Name}: {ex.Message}");
+                }
             }
             else
             {
@@ -282,6 +291,92 @@ public sealed class Il2CppRuntime
                     "instance sizes and field offsets remain unavailable.");
             }
         }
+    }
+
+    // Populates the game's global metadataUsages pointer array — the slots generated code reads for
+    // every string literal, typeof(...) and static-type reference. The real il2cpp_init fills these
+    // during startup; because we stub il2cpp_init, they stay null/garbage without this pass, which is
+    // the deterministic source of the "garbage length" std::string crashes deep in engine init.
+    private void ResolveMetadataUsagesLocked()
+    {
+        if (_codeRegistration is null || _metadata is null)
+        {
+            return;
+        }
+
+        if (_codeRegistration.MetadataUsagesCount == 0)
+        {
+            Log.Info("il2cpp metadataUsages table absent; skipping usage resolution.");
+            return;
+        }
+
+        var pairCount = _metadata.MetadataUsagePairCount;
+        int strings = 0, typeInfos = 0, types = 0, writeFailures = 0;
+
+        for (var i = 0; i < pairCount; i++)
+        {
+            if (!_metadata.TryGetMetadataUsagePair(i, out var destinationIndex, out var encodedSourceIndex))
+            {
+                continue;
+            }
+
+            var usageType = (encodedSourceIndex & 0xE0000000u) >> 29;
+            var sourceIndex = (int)(encodedSourceIndex & 0x1FFFFFFFu);
+            if (!_codeRegistration.TryGetUsageSlot((int)destinationIndex, out var slot))
+            {
+                continue;
+            }
+
+            nint resolved = 0;
+            switch (usageType)
+            {
+                case 1: // kIl2CppMetadataUsageTypeInfo -> Il2CppClass*
+                    var typeDefIndex = _codeRegistration.TryGetClassTypeDefinitionIndex(sourceIndex);
+                    if (typeDefIndex >= 0 && typeDefIndex < _metadata.TypeCount)
+                    {
+                        resolved = GetOrCreateClass(typeDefIndex);
+                        if (resolved != 0)
+                        {
+                            typeInfos++;
+                        }
+                    }
+
+                    break;
+
+                case 2: // kIl2CppMetadataUsageIl2CppType -> reuse the binary's Il2CppType*
+                    var typePtr = _codeRegistration.GetTypePointer(sourceIndex);
+                    if (typePtr != 0)
+                    {
+                        resolved = unchecked((nint)typePtr);
+                        types++;
+                    }
+
+                    break;
+
+                case 5: // kIl2CppMetadataUsageStringLiteral -> Il2CppString*
+                    resolved = NewString(_metadata.GetStringLiteral(sourceIndex));
+                    if (resolved != 0)
+                    {
+                        strings++;
+                    }
+
+                    break;
+
+                // MethodDef(3)/FieldInfo(4)/MethodRef(6) need full method/field construction; leaving
+                // their slots untouched keeps the previous behavior for those specific usages.
+                default:
+                    continue;
+            }
+
+            if (resolved != 0 && !_codeRegistration.TryWriteSlot(slot, unchecked((ulong)resolved)))
+            {
+                writeFailures++;
+            }
+        }
+
+        Log.Info(
+            $"Resolved il2cpp metadata usages: {strings} string literals, {typeInfos} type-infos, " +
+            $"{types} types ({pairCount} pairs, {writeFailures} slot writes failed).");
     }
 
     /// <summary>Instance size (bytes) for a class handle, or 0 if unavailable.</summary>

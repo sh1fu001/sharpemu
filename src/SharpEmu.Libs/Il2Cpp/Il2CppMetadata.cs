@@ -46,6 +46,12 @@ public sealed class Il2CppMetadata
     private const int FieldDef_NameIndex = 0x00;
     private const int FieldDef_TypeIndex = 0x04;
 
+    // Il2CppStringLiteral (v24) is 8 bytes: { uint32 length; int32 dataIndex; }.
+    private const int StringLiteralSize = 0x08;
+
+    // Il2CppMetadataUsagePair (v24) is 8 bytes: { uint32 destinationIndex; uint32 encodedSourceIndex; }.
+    private const int MetadataUsagePairSize = 0x08;
+
     private readonly byte[] _data;
     private readonly int _stringOffset;
     private readonly int _typeDefsOffset;
@@ -54,6 +60,11 @@ public sealed class Il2CppMetadata
     private readonly int _fieldsCount;
     private readonly int _methodsOffset;
     private readonly int _methodsCount;
+    private readonly int _stringLiteralOffset;
+    private readonly int _stringLiteralCount;
+    private readonly int _stringLiteralDataOffset;
+    private readonly int _metadataUsagePairsOffset;
+    private readonly int _metadataUsagePairsCount;
 
     // "Namespace.Name" and bare "Name" -> first matching type index.
     private readonly Dictionary<string, int> _typeByFullName = new(StringComparer.Ordinal);
@@ -69,6 +80,9 @@ public sealed class Il2CppMetadata
 
         // Header is magic, version, then (offset,count) uint32 pairs. Pair N's offset is at uint32
         // index 2*N and its size at 2*N+1. Indices below are for version 24.
+        _stringLiteralOffset = ReadHeaderInt(0);     // stringLiteral table (pair 0)
+        _stringLiteralCount = ReadHeaderInt(1) / StringLiteralSize;
+        _stringLiteralDataOffset = ReadHeaderInt(2);  // stringLiteralData blob (pair 1)
         _stringOffset = ReadHeaderInt(4);    // string blob (pair 2)
         _methodsOffset = ReadHeaderInt(10);  // methods (pair 5)
         _methodsCount = ReadHeaderInt(11) / MethodDefSize;
@@ -76,6 +90,8 @@ public sealed class Il2CppMetadata
         _fieldsCount = ReadHeaderInt(23) / FieldDefSize;
         _typeDefsOffset = ReadHeaderInt(38); // typeDefinitions (pair 19)
         _typeDefsCount = ReadHeaderInt(39) / TypeDefSize;
+        _metadataUsagePairsOffset = ReadHeaderInt(46); // metadataUsagePairs (pair 23)
+        _metadataUsagePairsCount = ReadHeaderInt(47) / MetadataUsagePairSize;
 
         BuildTypeIndex();
     }
@@ -83,6 +99,55 @@ public sealed class Il2CppMetadata
     public int TypeCount => _typeDefsCount;
 
     public int MethodCount => _methodsCount;
+
+    /// <summary>Number of (destination, encodedSource) metadata-usage pairs the runtime must resolve.</summary>
+    public int MetadataUsagePairCount => _metadataUsagePairsCount;
+
+    /// <summary>Reads one metadata-usage pair; false if the index is out of range.</summary>
+    public bool TryGetMetadataUsagePair(int index, out uint destinationIndex, out uint encodedSourceIndex)
+    {
+        destinationIndex = 0;
+        encodedSourceIndex = 0;
+        if ((uint)index >= (uint)_metadataUsagePairsCount)
+        {
+            return false;
+        }
+
+        var o = _metadataUsagePairsOffset + index * MetadataUsagePairSize;
+        if (o < 0 || o + MetadataUsagePairSize > _data.Length)
+        {
+            return false;
+        }
+
+        destinationIndex = BinaryPrimitives.ReadUInt32LittleEndian(_data.AsSpan(o));
+        encodedSourceIndex = BinaryPrimitives.ReadUInt32LittleEndian(_data.AsSpan(o + 4));
+        return true;
+    }
+
+    /// <summary>Decodes a UTF-8 string-literal by index; empty string if the index is out of range.</summary>
+    public string GetStringLiteral(int index)
+    {
+        if ((uint)index >= (uint)_stringLiteralCount)
+        {
+            return string.Empty;
+        }
+
+        var o = _stringLiteralOffset + index * StringLiteralSize;
+        if (o < 0 || o + StringLiteralSize > _data.Length)
+        {
+            return string.Empty;
+        }
+
+        var length = (int)BinaryPrimitives.ReadUInt32LittleEndian(_data.AsSpan(o));
+        var dataIndex = BinaryPrimitives.ReadInt32LittleEndian(_data.AsSpan(o + 4));
+        var start = _stringLiteralDataOffset + dataIndex;
+        if (length < 0 || start < 0 || (long)start + length > _data.Length)
+        {
+            return string.Empty;
+        }
+
+        return System.Text.Encoding.UTF8.GetString(_data, start, length);
+    }
 
     public static Il2CppMetadata Load(string path) => FromBytes(File.ReadAllBytes(path));
 

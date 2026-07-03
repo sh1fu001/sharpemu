@@ -39,6 +39,23 @@ public sealed class Il2CppCodeRegistrationTests
             _memory.AsSpan((int)offset, buffer.Length).CopyTo(buffer);
             return true;
         }
+
+        public bool TryWriteBytes(ulong address, System.ReadOnlySpan<byte> buffer)
+        {
+            if (address < _base)
+            {
+                return false;
+            }
+
+            var offset = address - _base;
+            if (offset + (ulong)buffer.Length > (ulong)_memory.Length)
+            {
+                return false;
+            }
+
+            buffer.CopyTo(_memory.AsSpan((int)offset, buffer.Length));
+            return true;
+        }
     }
 
     // Lays out, at a fixed base, a metadata registration whose fieldOffsets/typeDefinitionsSizes use

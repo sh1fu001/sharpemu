@@ -46,6 +46,8 @@ public static class Il2CppRuntimeExports
         public CpuMemoryReader(ICpuMemory memory) => _memory = memory;
 
         public bool TryReadBytes(ulong address, Span<byte> buffer) => _memory.TryRead(address, buffer);
+
+        public bool TryWriteBytes(ulong address, ReadOnlySpan<byte> buffer) => _memory.TryWrite(address, buffer);
     }
 
     // Locates the binary's Il2CppMetadataRegistration (instance sizes + field offsets) once guest

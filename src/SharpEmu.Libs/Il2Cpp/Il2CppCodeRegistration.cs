@@ -14,6 +14,9 @@ public interface IIl2CppMemoryReader
 {
     /// <summary>Reads exactly <paramref name="buffer"/>.Length bytes; false if any byte is unmapped.</summary>
     bool TryReadBytes(ulong address, Span<byte> buffer);
+
+    /// <summary>Writes exactly <paramref name="buffer"/>.Length bytes; false if the range is not writable.</summary>
+    bool TryWriteBytes(ulong address, ReadOnlySpan<byte> buffer);
 }
 
 /// <summary>
@@ -41,7 +44,15 @@ public sealed class Il2CppCodeRegistration
     private const int OffFieldOffsetsPtr = 0x58;
     private const int OffTypeDefSizesCount = 0x60;
     private const int OffTypeDefSizesPtr = 0x68;
+    private const int OffMetadataUsagesCount = 0x70;
+    private const int OffMetadataUsagesPtr = 0x78;
     private const int StructSize = 0x80;
+
+    // Il2CppType (v24) is 16 bytes: { void* data; uint bitfield }. The 8-bit "type" kind sits at bit
+    // 16 of the bitfield; for TYPE_CLASS/TYPE_VALUETYPE the low 32 bits of data are the type-def index.
+    private const int Il2CppTypeSize = 0x10;
+    private const uint Il2CppTypeClass = 0x12;
+    private const uint Il2CppTypeValueType = 0x11;
 
     // Il2CppTypeDefinitionSizes: { uint32 instance_size; int32 native_size; uint32 static_fields_size;
     // uint32 thread_static_fields_size; } = 16 bytes.
@@ -50,6 +61,10 @@ public sealed class Il2CppCodeRegistration
     private readonly IIl2CppMemoryReader _reader;
     private readonly ulong _fieldOffsetsPtr;
     private readonly ulong _typeDefSizesPtr;
+    private readonly ulong _typesPtr;
+    private readonly int _typesRegistrationCount;
+    private readonly ulong _metadataUsagesPtr;
+    private readonly int _metadataUsagesCount;
     private readonly bool _fieldOffsetsArePointers;
     private readonly bool _typeDefSizesArePointers;
     private readonly int _typeCount;
@@ -60,11 +75,18 @@ public sealed class Il2CppCodeRegistration
     /// <summary>Instance size (bytes) of System.Object as read back — 0x10 when parsing is correct.</summary>
     public uint ObjectInstanceSizeProbe { get; }
 
+    /// <summary>Number of metadataUsages slots the runtime is expected to fill (0 if none/unavailable).</summary>
+    public int MetadataUsagesCount => _metadataUsagesCount;
+
     private Il2CppCodeRegistration(
         IIl2CppMemoryReader reader,
         ulong metadataRegistration,
         ulong fieldOffsetsPtr,
         ulong typeDefSizesPtr,
+        ulong typesPtr,
+        int typesRegistrationCount,
+        ulong metadataUsagesPtr,
+        int metadataUsagesCount,
         bool fieldOffsetsArePointers,
         bool typeDefSizesArePointers,
         int typeCount,
@@ -74,6 +96,10 @@ public sealed class Il2CppCodeRegistration
         MetadataRegistrationAddress = metadataRegistration;
         _fieldOffsetsPtr = fieldOffsetsPtr;
         _typeDefSizesPtr = typeDefSizesPtr;
+        _typesPtr = typesPtr;
+        _typesRegistrationCount = typesRegistrationCount;
+        _metadataUsagesPtr = metadataUsagesPtr;
+        _metadataUsagesCount = metadataUsagesCount;
         _fieldOffsetsArePointers = fieldOffsetsArePointers;
         _typeDefSizesArePointers = typeDefSizesArePointers;
         _typeCount = typeCount;
@@ -126,15 +152,81 @@ public sealed class Il2CppCodeRegistration
 
         var foArePointers = DetectFieldOffsetsArePointers(reader, fieldOffsetsPtr, moduleBase, moduleEnd, (int)typeCount);
 
+        // typesCount / types[] and metadataUsages[] feed the metadata-usage resolution pass. A missing
+        // metadataUsages table is fine (older/AOT builds); the fields degrade to "no usages".
+        TryReadU32(reader, metaReg + OffTypesCount, out var typesRegCount);
+        TryReadU64(reader, metaReg + OffTypesPtr, out var typesPtr);
+        TryReadU64(reader, metaReg + OffMetadataUsagesCount, out var usagesCount);
+        TryReadU64(reader, metaReg + OffMetadataUsagesPtr, out var usagesPtr);
+        var usagesInModule = usagesPtr >= moduleBase && usagesPtr < moduleEnd;
+
         return new Il2CppCodeRegistration(
             reader,
             metaReg,
             fieldOffsetsPtr,
             typeDefSizesPtr,
+            typesPtr,
+            (int)typesRegCount,
+            usagesInModule ? usagesPtr : 0,
+            usagesInModule ? (int)Math.Min(usagesCount, int.MaxValue) : 0,
             foArePointers,
             tdsArePointers,
             (int)typeCount,
             objSize);
+    }
+
+    /// <summary>Reads the destination slot address (a void*) for a metadataUsages index, or 0.</summary>
+    public bool TryGetUsageSlot(int destinationIndex, out ulong slotAddress)
+    {
+        slotAddress = 0;
+        if (_metadataUsagesPtr == 0 || (uint)destinationIndex >= (uint)_metadataUsagesCount)
+        {
+            return false;
+        }
+
+        return TryReadU64(_reader, _metadataUsagesPtr + (ulong)destinationIndex * 8, out slotAddress) && slotAddress != 0;
+    }
+
+    /// <summary>Reads the Il2CppType* pointer at a types[] index, or 0.</summary>
+    public ulong GetTypePointer(int typeIndex)
+    {
+        if (_typesPtr == 0 || (uint)typeIndex >= (uint)_typesRegistrationCount)
+        {
+            return 0;
+        }
+
+        return TryReadU64(_reader, _typesPtr + (ulong)typeIndex * 8, out var typePtr) ? typePtr : 0;
+    }
+
+    /// <summary>
+    /// For a types[] index that denotes a plain class/value type, returns its type-definition index
+    /// (so the caller can resolve an Il2CppClass); -1 for other type kinds or on any read failure.
+    /// </summary>
+    public int TryGetClassTypeDefinitionIndex(int typeIndex)
+    {
+        var typePtr = GetTypePointer(typeIndex);
+        if (typePtr == 0 ||
+            !TryReadU64(_reader, typePtr, out var data) ||
+            !TryReadU32(_reader, typePtr + 8, out var bitfield))
+        {
+            return -1;
+        }
+
+        var kind = (bitfield >> 16) & 0xFF;
+        if (kind != Il2CppTypeClass && kind != Il2CppTypeValueType)
+        {
+            return -1;
+        }
+
+        return unchecked((int)(uint)data);
+    }
+
+    /// <summary>Writes a resolved pointer into a metadataUsages destination slot.</summary>
+    public bool TryWriteSlot(ulong slotAddress, ulong value)
+    {
+        Span<byte> buffer = stackalloc byte[sizeof(ulong)];
+        BinaryPrimitives.WriteUInt64LittleEndian(buffer, value);
+        return _reader.TryWriteBytes(slotAddress, buffer);
     }
 
     /// <summary>Instance size (bytes) for a type, or 0 if unavailable.</summary>
