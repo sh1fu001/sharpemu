@@ -138,18 +138,6 @@
       "sharpemu.logging": {
         "type": "Project"
       }
-    },
-    "net10.0/win-x64": {
-      "Silk.NET.Shaderc.Native": {
-        "type": "Transitive",
-        "resolved": "2.23.0",
-        "contentHash": "H6OMLIWdh2HITvkmj+ALs8LTIdQvQ2/JTtkDXinVbJ3xxrQIBXhVmc9jnuTQ67YDybGlENSMrgthzhLwK0rjnQ=="
-      },
-      "Ultz.Native.GLFW": {
-        "type": "Transitive",
-        "resolved": "3.4.0",
-        "contentHash": "Iy22JopynbOJ32vA0lBhFEzGi65GQJBuJHYBYRBpydrDpNoTiHnjIXfA65Gu+8qsOr/ZEoIF8r9aHCgAXuO6DA=="
-      }
     }
   }
 }
