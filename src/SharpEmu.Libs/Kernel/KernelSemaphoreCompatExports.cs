@@ -174,15 +174,15 @@ public static class KernelSemaphoreCompatExports
                         }
                     }))
             {
-                if (string.Equals(semaphore.Name, "FMOD Semaphore", StringComparison.Ordinal))
-                {
-                    TraceSemaphore(
-                        $"wait-fmod-cooperative-bypass handle=0x{handle:X8} need={needCount} count={semaphore.Count}");
-                    return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
-                }
-
-                TraceSemaphore($"wait-would-block handle=0x{handle:X8} name='{semaphore.Name}' need={needCount} count={semaphore.Count}");
-                return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN);
+                // The wait has no timeout (that path returns above) and the current thread cannot be
+                // parked by the scheduler. Returning TRY_AGAIN here makes the guest spin or, worse,
+                // proceed as if the wait had succeeded and read the not-yet-produced resource as
+                // garbage. Satisfying the wait cooperatively (as already done for "FMOD Semaphore")
+                // avoids the deadlock/garbage; the producer thread will still decrement on its next
+                // signal. This is the pragmatic choice for an un-parkable indefinite wait.
+                TraceSemaphore(
+                    $"wait-cooperative-bypass handle=0x{handle:X8} name='{semaphore.Name}' need={needCount} count={semaphore.Count}");
+                return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
             }
 
             semaphore.WaitingThreads++;
