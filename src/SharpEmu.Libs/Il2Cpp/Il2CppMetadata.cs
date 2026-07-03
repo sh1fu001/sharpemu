@@ -26,9 +26,20 @@ public sealed class Il2CppMetadata
     private const int TypeDef_NamespaceIndex = 0x04;
     private const int TypeDef_FieldStart = 0x24;
     private const int TypeDef_MethodStart = 0x28;
-    private const int TypeDef_FieldCount = 0x4C; // uint16
-    private const int TypeDef_MethodCount = 0x48; // uint16
+    private const int TypeDef_MethodCount = 0x44; // uint16 (v24.4)
+    private const int TypeDef_FieldCount = 0x48; // uint16
+    private const int TypeDef_Flags = 0x20;
     private const int TypeDef_Token = 0x58;
+
+    // Il2CppMethodDefinition (v24.4) is 32 bytes.
+    private const int MethodDefSize = 0x20;
+    private const int MethodDef_NameIndex = 0x00;
+    private const int MethodDef_DeclaringType = 0x04;
+    private const int MethodDef_Token = 0x14;
+    private const int MethodDef_Flags = 0x18; // uint16
+    private const int MethodDef_IfFlags = 0x1A; // uint16
+    private const int MethodDef_Slot = 0x1C; // uint16
+    private const int MethodDef_ParameterCount = 0x1E; // uint16
 
     // Il2CppFieldDefinition (v24) is 12 bytes: nameIndex, typeIndex, token.
     private const int FieldDefSize = 0x0C;
@@ -41,6 +52,8 @@ public sealed class Il2CppMetadata
     private readonly int _typeDefsCount;
     private readonly int _fieldsOffset;
     private readonly int _fieldsCount;
+    private readonly int _methodsOffset;
+    private readonly int _methodsCount;
 
     // "Namespace.Name" and bare "Name" -> first matching type index.
     private readonly Dictionary<string, int> _typeByFullName = new(StringComparer.Ordinal);
@@ -57,6 +70,8 @@ public sealed class Il2CppMetadata
         // Header is magic, version, then (offset,count) uint32 pairs. Pair N's offset is at uint32
         // index 2*N and its size at 2*N+1. Indices below are for version 24.
         _stringOffset = ReadHeaderInt(4);    // string blob (pair 2)
+        _methodsOffset = ReadHeaderInt(10);  // methods (pair 5)
+        _methodsCount = ReadHeaderInt(11) / MethodDefSize;
         _fieldsOffset = ReadHeaderInt(22);   // fields (pair 11)
         _fieldsCount = ReadHeaderInt(23) / FieldDefSize;
         _typeDefsOffset = ReadHeaderInt(38); // typeDefinitions (pair 19)
@@ -66,6 +81,8 @@ public sealed class Il2CppMetadata
     }
 
     public int TypeCount => _typeDefsCount;
+
+    public int MethodCount => _methodsCount;
 
     public static Il2CppMetadata Load(string path) => FromBytes(File.ReadAllBytes(path));
 
@@ -125,6 +142,158 @@ public sealed class Il2CppMetadata
         return BinaryPrimitives.ReadUInt16LittleEndian(_data.AsSpan(o + TypeDef_FieldCount));
     }
 
+    public int GetMethodStart(int typeIndex)
+    {
+        if ((uint)typeIndex >= (uint)_typeDefsCount)
+        {
+            return -1;
+        }
+
+        return ReadInt(_typeDefsOffset + typeIndex * TypeDefSize + TypeDef_MethodStart);
+    }
+
+    public int GetMethodCount(int typeIndex)
+    {
+        if ((uint)typeIndex >= (uint)_typeDefsCount)
+        {
+            return 0;
+        }
+
+        return BinaryPrimitives.ReadUInt16LittleEndian(
+            _data.AsSpan(_typeDefsOffset + typeIndex * TypeDefSize + TypeDef_MethodCount));
+    }
+
+    public uint GetTypeFlags(int typeIndex)
+    {
+        if ((uint)typeIndex >= (uint)_typeDefsCount)
+        {
+            return 0;
+        }
+
+        return BinaryPrimitives.ReadUInt32LittleEndian(
+            _data.AsSpan(_typeDefsOffset + typeIndex * TypeDefSize + TypeDef_Flags));
+    }
+
+    public string GetMethodName(int methodIndex)
+    {
+        if ((uint)methodIndex >= (uint)_methodsCount)
+        {
+            return string.Empty;
+        }
+
+        return ReadString(ReadInt(_methodsOffset + methodIndex * MethodDefSize + MethodDef_NameIndex));
+    }
+
+    public int GetMethodDeclaringType(int methodIndex)
+    {
+        if ((uint)methodIndex >= (uint)_methodsCount)
+        {
+            return -1;
+        }
+
+        return ReadInt(_methodsOffset + methodIndex * MethodDefSize + MethodDef_DeclaringType);
+    }
+
+    public uint GetMethodToken(int methodIndex)
+    {
+        if ((uint)methodIndex >= (uint)_methodsCount)
+        {
+            return 0;
+        }
+
+        return BinaryPrimitives.ReadUInt32LittleEndian(
+            _data.AsSpan(_methodsOffset + methodIndex * MethodDefSize + MethodDef_Token));
+    }
+
+    public ushort GetMethodFlags(int methodIndex) =>
+        ReadMethodUInt16(methodIndex, MethodDef_Flags);
+
+    public ushort GetMethodImplementationFlags(int methodIndex) =>
+        ReadMethodUInt16(methodIndex, MethodDef_IfFlags);
+
+    public ushort GetMethodSlot(int methodIndex) =>
+        ReadMethodUInt16(methodIndex, MethodDef_Slot);
+
+    public ushort GetMethodParameterCount(int methodIndex) =>
+        ReadMethodUInt16(methodIndex, MethodDef_ParameterCount);
+
+    public int FindMethodIndex(int typeIndex, string methodName, int argumentCount)
+    {
+        var start = GetMethodStart(typeIndex);
+        var count = GetMethodCount(typeIndex);
+        if (start < 0 || count == 0 || string.IsNullOrEmpty(methodName))
+        {
+            return -1;
+        }
+
+        for (var i = 0; i < count; i++)
+        {
+            var methodIndex = start + i;
+            if ((uint)methodIndex >= (uint)_methodsCount)
+            {
+                break;
+            }
+
+            if (string.Equals(GetMethodName(methodIndex), methodName, StringComparison.Ordinal) &&
+                (argumentCount < 0 || GetMethodParameterCount(methodIndex) == argumentCount))
+            {
+                return methodIndex;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>Global index of the first field declared on this type (-1 if none/invalid).</summary>
+    public int GetFieldStart(int typeIndex)
+    {
+        if ((uint)typeIndex >= (uint)_typeDefsCount)
+        {
+            return -1;
+        }
+
+        var o = _typeDefsOffset + typeIndex * TypeDefSize;
+        return ReadInt(o + TypeDef_FieldStart);
+    }
+
+    /// <summary>
+    /// Resolves a declared field's ordinal WITHIN its type (0-based, in declaration order). This is
+    /// the index used against the binary's per-type <c>fieldOffsets[typeIndex]</c> array; returns -1
+    /// if the field is not declared on the type.
+    /// </summary>
+    public int FindFieldLocalIndex(int typeIndex, string fieldName)
+    {
+        if ((uint)typeIndex >= (uint)_typeDefsCount)
+        {
+            return -1;
+        }
+
+        var o = _typeDefsOffset + typeIndex * TypeDefSize;
+        var fieldStart = ReadInt(o + TypeDef_FieldStart);
+        var fieldCount = BinaryPrimitives.ReadUInt16LittleEndian(_data.AsSpan(o + TypeDef_FieldCount));
+        if (fieldStart < 0)
+        {
+            return -1;
+        }
+
+        for (var i = 0; i < fieldCount; i++)
+        {
+            var globalIndex = fieldStart + i;
+            if (globalIndex >= _fieldsCount)
+            {
+                break;
+            }
+
+            var fo = _fieldsOffset + globalIndex * FieldDefSize;
+            if (string.Equals(ReadString(ReadInt(fo + FieldDef_NameIndex)), fieldName, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
     /// <summary>Finds a declared field's name index within a type; returns the global field index or -1.</summary>
     public int FindFieldIndex(int typeIndex, string fieldName)
     {
@@ -180,6 +349,17 @@ public sealed class Il2CppMetadata
         BinaryPrimitives.ReadInt32LittleEndian(_data.AsSpan(8 + uint32Index * 4));
 
     private int ReadInt(int offset) => BinaryPrimitives.ReadInt32LittleEndian(_data.AsSpan(offset));
+
+    private ushort ReadMethodUInt16(int methodIndex, int fieldOffset)
+    {
+        if ((uint)methodIndex >= (uint)_methodsCount)
+        {
+            return 0;
+        }
+
+        return BinaryPrimitives.ReadUInt16LittleEndian(
+            _data.AsSpan(_methodsOffset + methodIndex * MethodDefSize + fieldOffset));
+    }
 
     private string ReadString(int stringIndex)
     {

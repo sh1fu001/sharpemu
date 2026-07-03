@@ -451,8 +451,21 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         {
             var loadedModule = loadedModuleImages[i];
             var initEntryPoint = loadedModule.Image.InitFunctionEntryPoint;
-            if (initEntryPoint < 0x10000)
+            var imageBase = loadedModule.Image.EntryPoint >= loadedModule.Image.ElfHeader.EntryPoint
+                ? loadedModule.Image.EntryPoint - loadedModule.Image.ElfHeader.EntryPoint
+                : 0UL;
+            var initOffset = initEntryPoint >= imageBase
+                ? initEntryPoint - imageBase
+                : initEntryPoint;
+            if (initOffset < 0x10000)
             {
+                if (initEntryPoint != 0)
+                {
+                    Log.Info(
+                        $"Skipping non-callable module DT_INIT at image offset 0x{initOffset:X} " +
+                        $"for {Path.GetFileName(loadedModule.Path)}.");
+                }
+
                 continue;
             }
 
@@ -571,6 +584,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         {
             Path.Combine(ebootDirectory, "sce_module"),
             Path.Combine(ebootDirectory, "sce_modules"),
+            Path.Combine(ebootDirectory, "Media", "Modules"),
         }
         .Distinct(StringComparer.OrdinalIgnoreCase)
         .Where(Directory.Exists)

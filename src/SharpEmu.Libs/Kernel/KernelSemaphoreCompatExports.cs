@@ -16,6 +16,7 @@ public static class KernelSemaphoreCompatExports
 
     private const int MaxSemaphoreNameLength = 128;
     private static readonly ConcurrentDictionary<uint, KernelSemaphoreState> _semaphores = new();
+    private static readonly ConcurrentDictionary<ulong, uint> _handlesByStorageAddress = new();
     private static int _nextSemaphoreHandle = 1;
 
     private sealed class KernelSemaphoreState
@@ -25,6 +26,7 @@ public static class KernelSemaphoreCompatExports
         public required int MaxCount { get; init; }
         public int Count { get; set; }
         public int WaitingThreads { get; set; }
+        public bool IsDeleted { get; set; }
         public object Gate { get; } = new();
     }
 
@@ -78,7 +80,8 @@ public static class KernelSemaphoreCompatExports
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
         }
 
-        TraceSemaphore($"create handle=0x{handle:X8} name='{name}' attr=0x{attr:X} init={initialCount} max={maxCount}");
+        _handlesByStorageAddress[semaphoreAddress] = handle;
+        TraceSemaphore($"create handle=0x{handle:X8} storage=0x{semaphoreAddress:X16} name='{name}' attr=0x{attr:X} init={initialCount} max={maxCount}");
         return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
     }
 
@@ -89,12 +92,21 @@ public static class KernelSemaphoreCompatExports
         LibraryName = "libKernel")]
     public static int KernelWaitSema(CpuContext ctx)
     {
-        var handle = unchecked((uint)ctx[CpuRegister.Rdi]);
+        var rawHandle = ctx[CpuRegister.Rdi];
         var needCount = unchecked((int)ctx[CpuRegister.Rsi]);
         var timeoutAddress = ctx[CpuRegister.Rdx];
 
-        if (!_semaphores.TryGetValue(handle, out var semaphore))
+        if (!TryResolveSemaphore(ctx, rawHandle, out var handle, out var semaphore))
         {
+            if (rawHandle > uint.MaxValue &&
+                timeoutAddress == 0 &&
+                HasFmodSemaphoreTombstone())
+            {
+                TraceSemaphore(
+                    $"wait-stale-fmod-wrapper raw=0x{rawHandle:X16}; treating teardown race as satisfied");
+                return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+            }
+
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND);
         }
 
@@ -105,6 +117,12 @@ public static class KernelSemaphoreCompatExports
 
         lock (semaphore.Gate)
         {
+            if (semaphore.IsDeleted)
+            {
+                TraceSemaphore($"wait-deleted handle=0x{handle:X8} name='{semaphore.Name}'");
+                return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+            }
+
             if (semaphore.Count >= needCount)
             {
                 semaphore.Count -= needCount;
@@ -124,8 +142,45 @@ public static class KernelSemaphoreCompatExports
                 return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_TIMED_OUT);
             }
 
-            if (!GuestThreadExecution.RequestCurrentThreadBlock(ctx, "sceKernelWaitSema"))
+            var blockedWaitResult = OrbisGen2Result.ORBIS_GEN2_OK;
+            if (!GuestThreadExecution.RequestCurrentThreadBlock(
+                    ctx,
+                    "sceKernelWaitSema",
+                    GetSemaphoreWakeKey(handle),
+                    () => (int)blockedWaitResult,
+                    () =>
+                    {
+                        lock (semaphore.Gate)
+                        {
+                            if (semaphore.IsDeleted)
+                            {
+                                semaphore.WaitingThreads = Math.Max(0, semaphore.WaitingThreads - 1);
+                                TraceSemaphore(
+                                    $"wait-delete-wake handle=0x{handle:X8} name='{semaphore.Name}' waiters={semaphore.WaitingThreads}");
+                                return true;
+                            }
+
+                            if (semaphore.Count < needCount)
+                            {
+                                return false;
+                            }
+
+                            semaphore.Count -= needCount;
+                            semaphore.WaitingThreads = Math.Max(0, semaphore.WaitingThreads - 1);
+                            blockedWaitResult = OrbisGen2Result.ORBIS_GEN2_OK;
+                            TraceSemaphore(
+                                $"wait-wake handle=0x{handle:X8} name='{semaphore.Name}' need={needCount} count={semaphore.Count} waiters={semaphore.WaitingThreads}");
+                            return true;
+                        }
+                    }))
             {
+                if (string.Equals(semaphore.Name, "FMOD Semaphore", StringComparison.Ordinal))
+                {
+                    TraceSemaphore(
+                        $"wait-fmod-cooperative-bypass handle=0x{handle:X8} need={needCount} count={semaphore.Count}");
+                    return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+                }
+
                 TraceSemaphore($"wait-would-block handle=0x{handle:X8} name='{semaphore.Name}' need={needCount} count={semaphore.Count}");
                 return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN);
             }
@@ -143,10 +198,10 @@ public static class KernelSemaphoreCompatExports
         LibraryName = "libKernel")]
     public static int KernelPollSema(CpuContext ctx)
     {
-        var handle = unchecked((uint)ctx[CpuRegister.Rdi]);
+        var rawHandle = ctx[CpuRegister.Rdi];
         var needCount = unchecked((int)ctx[CpuRegister.Rsi]);
 
-        if (!_semaphores.TryGetValue(handle, out var semaphore))
+        if (!TryResolveSemaphore(ctx, rawHandle, out var handle, out var semaphore))
         {
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND);
         }
@@ -177,11 +232,18 @@ public static class KernelSemaphoreCompatExports
         LibraryName = "libKernel")]
     public static int KernelSignalSema(CpuContext ctx)
     {
-        var handle = unchecked((uint)ctx[CpuRegister.Rdi]);
+        var rawHandle = ctx[CpuRegister.Rdi];
         var signalCount = unchecked((int)ctx[CpuRegister.Rsi]);
 
-        if (!_semaphores.TryGetValue(handle, out var semaphore))
+        if (!TryResolveSemaphore(ctx, rawHandle, out var handle, out var semaphore))
         {
+            if (rawHandle == 0 && HasFmodSemaphoreTombstone())
+            {
+                TraceSemaphore(
+                    "signal-stale-fmod-handle raw=0x0000000000000000; treating teardown race as a no-op");
+                return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+            }
+
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND);
         }
 
@@ -192,15 +254,36 @@ public static class KernelSemaphoreCompatExports
 
         lock (semaphore.Gate)
         {
+            if (semaphore.IsDeleted)
+            {
+                TraceSemaphore(
+                    $"signal-deleted handle=0x{handle:X8} name='{semaphore.Name}' signal={signalCount}");
+                return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+            }
+
             if (semaphore.Count > semaphore.MaxCount - signalCount)
             {
+                // FMOD can race its teardown or run a producer before its cooperatively scheduled
+                // consumer. The native semaphore remains bounded, but this condition is not fatal
+                // to FMOD; accepting the redundant signal avoids its tight error-retry loop.
+                if (string.Equals(semaphore.Name, "FMOD Semaphore", StringComparison.Ordinal))
+                {
+                    TraceSemaphore(
+                        $"signal-fmod-saturated handle=0x{handle:X8} signal={signalCount} count={semaphore.Count}");
+                    return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+                }
+
                 return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT);
             }
 
             semaphore.Count += signalCount;
             TraceSemaphore($"signal handle=0x{handle:X8} name='{semaphore.Name}' signal={signalCount} count={semaphore.Count} waiters={semaphore.WaitingThreads}");
-            return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
         }
+
+        _ = GuestThreadExecution.Scheduler?.WakeBlockedThreads(
+            GetSemaphoreWakeKey(handle),
+            signalCount);
+        return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
     }
 
     [SysAbiExport(
@@ -210,11 +293,11 @@ public static class KernelSemaphoreCompatExports
         LibraryName = "libKernel")]
     public static int KernelCancelSema(CpuContext ctx)
     {
-        var handle = unchecked((uint)ctx[CpuRegister.Rdi]);
+        var rawHandle = ctx[CpuRegister.Rdi];
         var setCount = unchecked((int)ctx[CpuRegister.Rsi]);
         var waitingThreadsAddress = ctx[CpuRegister.Rdx];
 
-        if (!_semaphores.TryGetValue(handle, out var semaphore))
+        if (!TryResolveSemaphore(ctx, rawHandle, out var handle, out var semaphore))
         {
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND);
         }
@@ -234,8 +317,10 @@ public static class KernelSemaphoreCompatExports
             semaphore.Count = setCount < 0 ? semaphore.InitialCount : setCount;
             semaphore.WaitingThreads = 0;
             TraceSemaphore($"cancel handle=0x{handle:X8} name='{semaphore.Name}' set={setCount} count={semaphore.Count}");
-            return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
         }
+
+        _ = GuestThreadExecution.Scheduler?.WakeBlockedThreads(GetSemaphoreWakeKey(handle));
+        return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
     }
 
     [SysAbiExport(
@@ -245,14 +330,112 @@ public static class KernelSemaphoreCompatExports
         LibraryName = "libKernel")]
     public static int KernelDeleteSema(CpuContext ctx)
     {
-        var handle = unchecked((uint)ctx[CpuRegister.Rdi]);
-        if (!_semaphores.TryRemove(handle, out var semaphore))
+        var rawHandle = ctx[CpuRegister.Rdi];
+        if (!TryResolveSemaphore(ctx, rawHandle, out var handle, out var semaphore))
         {
             return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND);
         }
 
+        // Guest waits are cooperatively scheduled rather than blocked inside this call. Keep the
+        // state as a tombstone so a waiter that was already scheduled before delete can still
+        // consume the final signal instead of observing NOT_FOUND and entering a fatal error path.
+        lock (semaphore.Gate)
+        {
+            semaphore.IsDeleted = true;
+            semaphore.Count = 0;
+        }
+
+        _ = GuestThreadExecution.Scheduler?.WakeBlockedThreads(GetSemaphoreWakeKey(handle));
         TraceSemaphore($"delete handle=0x{handle:X8} name='{semaphore.Name}'");
         return SetReturn(ctx, OrbisGen2Result.ORBIS_GEN2_OK);
+    }
+
+    private static bool TryResolveSemaphore(
+        CpuContext ctx,
+        ulong rawHandle,
+        out uint handle,
+        out KernelSemaphoreState semaphore)
+    {
+        handle = unchecked((uint)rawHandle);
+        if (_semaphores.TryGetValue(handle, out semaphore!))
+        {
+            return true;
+        }
+
+        if (_handlesByStorageAddress.TryGetValue(rawHandle, out var storedHandle) &&
+            _semaphores.TryGetValue(storedHandle, out semaphore!))
+        {
+            handle = storedHandle;
+            TraceSemaphore(
+                $"resolve-storage raw=0x{rawHandle:X16} handle=0x{handle:X8}");
+            return true;
+        }
+
+        // Some PS5 middleware wrappers pass the address of their SceKernelSema storage instead of
+        // the scalar value. Accept that ABI shape when the pointed-to value names a live semaphore.
+        if (rawHandle > uint.MaxValue &&
+            TryReadUInt32(ctx, rawHandle, out var indirectHandle))
+        {
+            if (_semaphores.TryGetValue(indirectHandle, out semaphore!))
+            {
+                handle = indirectHandle;
+                return true;
+            }
+
+            TraceSemaphore(
+                $"resolve-miss raw=0x{rawHandle:X16} low=0x{handle:X8} indirect=0x{indirectHandle:X8}");
+
+            // Some wrappers store a 32-bit address relative to their 4-GiB guest arena.
+            var relativeNestedAddress = (rawHandle & 0xFFFF_FFFF_0000_0000UL) | indirectHandle;
+            if (relativeNestedAddress != rawHandle)
+            {
+                if (_handlesByStorageAddress.TryGetValue(relativeNestedAddress, out storedHandle) &&
+                    _semaphores.TryGetValue(storedHandle, out semaphore!))
+                {
+                    handle = storedHandle;
+                    TraceSemaphore(
+                        $"resolve-relative-storage raw=0x{rawHandle:X16} nested=0x{relativeNestedAddress:X16} handle=0x{handle:X8}");
+                    return true;
+                }
+
+                if (TryReadUInt32(ctx, relativeNestedAddress, out var relativeNestedHandle) &&
+                    _semaphores.TryGetValue(relativeNestedHandle, out semaphore!))
+                {
+                    handle = relativeNestedHandle;
+                    TraceSemaphore(
+                        $"resolve-relative raw=0x{rawHandle:X16} nested=0x{relativeNestedAddress:X16} handle=0x{handle:X8}");
+                    return true;
+                }
+
+            }
+        }
+
+        if (rawHandle > uint.MaxValue &&
+            ctx.TryReadUInt64(rawHandle, out var nestedAddress) &&
+            nestedAddress > uint.MaxValue &&
+            nestedAddress != rawHandle)
+        {
+            if (_handlesByStorageAddress.TryGetValue(nestedAddress, out storedHandle) &&
+                _semaphores.TryGetValue(storedHandle, out semaphore!))
+            {
+                handle = storedHandle;
+                TraceSemaphore(
+                    $"resolve-nested-storage raw=0x{rawHandle:X16} nested=0x{nestedAddress:X16} handle=0x{handle:X8}");
+                return true;
+            }
+
+            if (TryReadUInt32(ctx, nestedAddress, out var nestedHandle) &&
+                _semaphores.TryGetValue(nestedHandle, out semaphore!))
+            {
+                handle = nestedHandle;
+                TraceSemaphore(
+                    $"resolve-nested raw=0x{rawHandle:X16} nested=0x{nestedAddress:X16} handle=0x{handle:X8}");
+                return true;
+            }
+        }
+
+        semaphore = null!;
+        return false;
     }
 
     private static int SetReturn(CpuContext ctx, OrbisGen2Result result)
@@ -377,9 +560,28 @@ public static class KernelSemaphoreCompatExports
 
     private static void TraceSemaphore(string message)
     {
-        if (string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_SEMA"), "1", StringComparison.Ordinal))
+        if (ShouldTraceSemaphore())
         {
             Log.Trace($"sema.{message}");
         }
+    }
+
+    private static bool ShouldTraceSemaphore() =>
+        string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_SEMA"), "1", StringComparison.Ordinal);
+
+    private static string GetSemaphoreWakeKey(uint handle) =>
+        $"semaphore:0x{handle:X8}";
+
+    private static bool HasFmodSemaphoreTombstone()
+    {
+        foreach (var semaphore in _semaphores.Values)
+        {
+            if (string.Equals(semaphore.Name, "FMOD Semaphore", StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

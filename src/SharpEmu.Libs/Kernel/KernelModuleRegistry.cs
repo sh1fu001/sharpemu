@@ -260,6 +260,46 @@ public static class KernelModuleRegistry
         }
     }
 
+    /// <summary>
+    /// Returns the main executable module (the game's eboot) with a valid mapped range. Prefers an
+    /// entry flagged <see cref="ModuleEntry.IsMain"/>; falls back to the lowest-handle non-system
+    /// module with a real base/end.
+    /// </summary>
+    public static bool TryGetMainModule(out ModuleEntry module)
+    {
+        lock (_gate)
+        {
+            ModuleEntry? fallback = null;
+            foreach (var entry in _modulesByHandle.Values.OrderBy(e => e.Handle))
+            {
+                if (entry.BaseAddress == 0 || entry.EndAddress <= entry.BaseAddress)
+                {
+                    continue;
+                }
+
+                if (entry.IsMain)
+                {
+                    module = entry;
+                    return true;
+                }
+
+                if (fallback is null && !entry.IsSystemModule)
+                {
+                    fallback = entry;
+                }
+            }
+
+            if (fallback is not null)
+            {
+                module = fallback.Value;
+                return true;
+            }
+
+            module = default;
+            return false;
+        }
+    }
+
     private static bool TryResolveKnownSysmoduleHandleLocked(int sysmoduleId, out int handle)
     {
         handle = 0;

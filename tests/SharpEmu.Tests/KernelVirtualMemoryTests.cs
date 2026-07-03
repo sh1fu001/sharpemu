@@ -204,6 +204,29 @@ public sealed class KernelVirtualMemoryTests
             KernelMemoryCompatExports.KernelCheckedReleaseDirectMemory(context));
     }
 
+    [Fact]
+    public void AllocateDirectMemory_ReturnsOutOfMemoryWhenRangeCannotFit()
+    {
+        var memory = new VirtualMemory();
+        memory.Map(
+            ScratchAddress,
+            0x1000,
+            0,
+            ReadOnlySpan<byte>.Empty,
+            ProgramHeaderFlags.Read | ProgramHeaderFlags.Write);
+        var context = new CpuContext(memory, Generation.Gen5);
+        context[CpuRegister.Rdi] = 0;
+        context[CpuRegister.Rsi] = 0x4000;
+        context[CpuRegister.Rdx] = 0x8000;
+        context[CpuRegister.Rcx] = 0x4000;
+        context[CpuRegister.R8] = 0;
+        context[CpuRegister.R9] = ScratchAddress;
+
+        Assert.Equal(
+            (int)OrbisGen2Result.ORBIS_GEN2_ERROR_OUT_OF_MEMORY,
+            KernelMemoryCompatExports.KernelAllocateDirectMemory(context));
+    }
+
     private static (CpuContext Context, ulong Address) AllocateDirectMemory(
         ulong searchStart,
         ulong length)

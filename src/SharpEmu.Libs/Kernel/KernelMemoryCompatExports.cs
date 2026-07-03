@@ -54,7 +54,9 @@ public static class KernelMemoryCompatExports
     private const int SeekCur = 1;
     private const int SeekEnd = 2;
     private const ulong DirectMemorySizeBytes = 16384UL * 1024 * 1024;
-    private const ulong UnsetMainDirectMemoryPoolBase = ulong.MaxValue;
+    // Gen5 titles partition several large, sparsely backed GPU heaps through this logical aperture.
+    // Host pages remain lazily committed by the virtual-memory backend.
+    private const ulong MainDirectMemorySizeBytes = 64UL * 1024 * 1024 * 1024;
     private const ulong FlexibleMemorySizeBytes = 448UL * 1024 * 1024;
     private const int OrbisVirtualQueryInfoSize = 72;
     private const int OrbisKernelMaximumNameLength = 32;
@@ -115,7 +117,6 @@ public static class KernelMemoryCompatExports
     private static long _nextFileDescriptor = 2;
     private static ulong _nextPhysicalAddress;
     private static ulong _nextVirtualAddress;
-    private static ulong _mainDirectMemoryPoolBase = UnsetMainDirectMemoryPoolBase;
     private static ulong _allocatedFlexibleBytes;
     private static ulong _threadAtexitCountCallback;
     private static ulong _threadAtexitReportCallback;
@@ -3391,8 +3392,8 @@ public static class KernelMemoryCompatExports
                     align,
                     memoryType,
                     outAddress,
-                    result: OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN);
-                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN;
+                    result: OrbisGen2Result.ORBIS_GEN2_ERROR_OUT_OF_MEMORY);
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_OUT_OF_MEMORY;
             }
         }
 
@@ -3451,42 +3452,24 @@ public static class KernelMemoryCompatExports
         ulong aligned;
         lock (_memoryGate)
         {
-            var allocationLimit = DirectMemorySizeBytes;
-            if (_mainDirectMemoryPoolBase != UnsetMainDirectMemoryPoolBase &&
-                !TryAddU64(_mainDirectMemoryPoolBase, DirectMemorySizeBytes, out allocationLimit))
+            if (!TryAllocateDirectMemoryLocked(
+                    0,
+                    MainDirectMemorySizeBytes,
+                    length,
+                    effectiveAlignment,
+                    memoryType,
+                    MainDirectMemorySizeBytes,
+                    out aligned))
             {
-                allocationLimit = ulong.MaxValue;
-            }
-
-            if (!TryAllocateDirectMemoryLocked(0, allocationLimit, length, effectiveAlignment, memoryType, allocationLimit, out aligned))
-            {
-                var poolBase = _mainDirectMemoryPoolBase == UnsetMainDirectMemoryPoolBase
-                    ? AlignUp(GetDirectMemoryHighWaterMarkLocked(), effectiveAlignment)
-                    : _mainDirectMemoryPoolBase;
-
-                if (_mainDirectMemoryPoolBase == UnsetMainDirectMemoryPoolBase &&
-                    TryAddU64(poolBase, DirectMemorySizeBytes, out var shiftedLimit) &&
-                    TryAllocateDirectMemoryLocked(0, shiftedLimit, length, effectiveAlignment, memoryType, shiftedLimit, out aligned))
-                {
-                    _mainDirectMemoryPoolBase = poolBase;
-                    if (ShouldTraceDirectMemory())
-                    {
-                        Log.Trace(
-                            $"main_direct_pool: base=0x{poolBase:X16} limit=0x{shiftedLimit:X16}");
-                    }
-                }
-                else
-                {
-                    TraceDirectMemoryCall(
-                        ctx,
-                        "allocate_main_direct",
-                        length,
-                        effectiveAlignment,
-                        memoryType,
-                        outAddress,
-                        result: OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN);
-                    return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN;
-                }
+                TraceDirectMemoryCall(
+                    ctx,
+                    "allocate_main_direct",
+                    length,
+                    effectiveAlignment,
+                    memoryType,
+                    outAddress,
+                    result: OrbisGen2Result.ORBIS_GEN2_ERROR_OUT_OF_MEMORY);
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_OUT_OF_MEMORY;
             }
         }
 

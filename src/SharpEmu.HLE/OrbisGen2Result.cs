@@ -41,6 +41,11 @@ public enum OrbisGen2Result : int
     ORBIS_GEN2_ERROR_DEADLOCK = unchecked((int)0x8002000B),
 
     /// <summary>
+    /// Indicates that the requested memory allocation cannot be satisfied.
+    /// </summary>
+    ORBIS_GEN2_ERROR_OUT_OF_MEMORY = unchecked((int)0x8002000C),
+
+    /// <summary>
     /// Indicates that the target resource is busy.
     /// </summary>
     ORBIS_GEN2_ERROR_BUSY = unchecked((int)0x80020010),
