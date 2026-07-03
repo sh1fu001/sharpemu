@@ -18,8 +18,22 @@ public sealed partial class DirectExecutionBackend
 	private const ulong LazyCommitWindowBytes = 0x0001_0000UL;
 	private static int _lazyCommitTraceCount;
 
+	// Opt-in (SHARPEMU_SKIP_GARBAGE_STORES=1) "best-effort keep running" mode: when guest code stores
+	// to a genuinely inaccessible address (a garbage index computed from an incomplete-VM value), step
+	// over the store instead of letting the uncatchable AV kill the process. The store targeted junk
+	// memory anyway, so dropping it loses nothing; it keeps a non-essential garbage write (e.g. a
+	// debug/name string) from taking down the whole run.
+	private bool _skipGarbageStores;
+	private long _garbageStoreSkips;
+
 	private unsafe void SetupExceptionHandler()
 	{
+		_skipGarbageStores = string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_SKIP_GARBAGE_STORES"), "1", StringComparison.Ordinal);
+		if (_skipGarbageStores)
+		{
+			Console.Error.WriteLine("[LOADER][INFO] Garbage-store survival mode enabled (SHARPEMU_SKIP_GARBAGE_STORES=1).");
+		}
+
 		if (!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_RAW_HANDLER"), "1", StringComparison.Ordinal))
 		{
 			_rawExceptionHandlerStub = CreateExceptionHandlerTrampoline(RawVectoredHandlerPtrManaged);
@@ -108,6 +122,10 @@ public sealed partial class DirectExecutionBackend
 				return -1;
 			}
 			if (exceptionCode == 3221225477u && TryRecoverGuestExecuteFault(exceptionInfo) != 0)
+			{
+				return -1;
+			}
+			if (exceptionCode == 3221225477u && TryRecoverGuestGarbageStore(exceptionRecord, contextRecord, rip))
 			{
 				return -1;
 			}
@@ -341,6 +359,95 @@ public sealed partial class DirectExecutionBackend
 		{
 			return false;
 		}
+	}
+
+	// Steps over a guest store to an inaccessible address (garbage index / OOB write from an
+	// incomplete-VM value) instead of letting the uncatchable AV terminate the process. Only engages
+	// when SHARPEMU_SKIP_GARBAGE_STORES=1, only for write faults, and only when the target is genuinely
+	// not a committed writable page (so it never masks a fault on real, mapped guest memory).
+	private unsafe bool TryRecoverGuestGarbageStore(EXCEPTION_RECORD* exceptionRecord, void* contextRecord, ulong rip)
+	{
+		if (!_skipGarbageStores || exceptionRecord->NumberParameters < 2)
+		{
+			return false;
+		}
+
+		ulong accessType = *exceptionRecord->ExceptionInformation;
+		if (accessType != 0 && accessType != 1)
+		{
+			return false;
+		}
+
+		ulong target = exceptionRecord->ExceptionInformation[1];
+
+		// A committed page already permitting this access would not have faulted, so if we see one the
+		// fault is something else entirely — leave it for the fatal path rather than silently skipping.
+		var accessibleMask = accessType == 1 ? 0xCCu : 0xEEu;
+		if (VirtualQuery((void*)target, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) != 0 &&
+			mbi.State == MEM_COMMIT &&
+			(mbi.Protect & accessibleMask) != 0 &&
+			(mbi.Protect & 0x100u) == 0)
+		{
+			return false;
+		}
+
+		byte[] instructionBytes = new byte[15];
+		try
+		{
+			Marshal.Copy((nint)rip, instructionBytes, 0, instructionBytes.Length);
+		}
+		catch
+		{
+			return false;
+		}
+
+		if (!IcedDecoder.TryDecode(rip, instructionBytes, out var instruction) || instruction.Length <= 0)
+		{
+			return false;
+		}
+
+		// A read fault can only be dropped safely for a bulk string op (rep movs/stos/...), where
+		// abandoning the whole transfer is well-defined. Skipping a scalar load would leave its
+		// destination register holding stale garbage, so those stay fatal.
+		if (accessType == 0 && !IsRepStringOp(instructionBytes))
+		{
+			return false;
+		}
+
+		long count = Interlocked.Increment(ref _garbageStoreSkips);
+		if (count <= 32 || count % 4096 == 0)
+		{
+			Console.Error.WriteLine(
+				$"[LOADER][WARN] Skipped garbage guest {(accessType == 1 ? "store" : "read")} #{count} at rip=0x{rip:X16} " +
+				$"target=0x{target:X16} len={instruction.Length} ({instruction.Text}).");
+			Console.Error.Flush();
+		}
+
+		WriteCtxU64(contextRecord, CTX_RIP, rip + (ulong)instruction.Length);
+		return true;
+	}
+
+	// True for a REP-prefixed x86 string instruction (movs/stos/cmps/lods/scas), after an optional REX.
+	private static bool IsRepStringOp(byte[] bytes)
+	{
+		var i = 0;
+		if (i >= bytes.Length || (bytes[i] != 0xF3 && bytes[i] != 0xF2))
+		{
+			return false;
+		}
+
+		i++;
+		if (i < bytes.Length && (bytes[i] & 0xF0) == 0x40)
+		{
+			i++;
+		}
+
+		if (i >= bytes.Length)
+		{
+			return false;
+		}
+
+		return bytes[i] is 0xA4 or 0xA5 or 0xA6 or 0xA7 or 0xAA or 0xAB or 0xAC or 0xAD or 0xAE or 0xAF;
 	}
 
 	private static bool IsBenignHostDebugException(uint exceptionCode)
