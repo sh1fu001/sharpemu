@@ -34,6 +34,8 @@ public sealed partial class DirectExecutionBackend
 			Console.Error.WriteLine("[LOADER][INFO] Garbage-store survival mode enabled (SHARPEMU_SKIP_GARBAGE_STORES=1).");
 		}
 
+		StartWatchWritesArmingThread();
+
 		if (!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_RAW_HANDLER"), "1", StringComparison.Ordinal))
 		{
 			_rawExceptionHandlerStub = CreateExceptionHandlerTrampoline(RawVectoredHandlerPtrManaged);
@@ -116,6 +118,17 @@ public sealed partial class DirectExecutionBackend
 
 			ulong rip = ReadCtxU64(contextRecord, 248);
 			ulong rsp = ReadCtxU64(contextRecord, 152);
+
+			// Write-watchpoint hooks must run first: the watched page is committed-but-readonly,
+			// which the lazy-commit paths would otherwise misclassify or ignore.
+			if (exceptionCode == 3221225477u && TryHandleWatchedWriteFault(exceptionRecord, contextRecord, rip))
+			{
+				return -1;
+			}
+			if (exceptionCode == 0x80000004u && TryCompleteWatchedWriteStep(contextRecord))
+			{
+				return -1;
+			}
 
 			if (exceptionCode == 3221225477u && TryHandleLazyCommittedPage(exceptionRecord, contextRecord, rip, rsp))
 			{
@@ -283,6 +296,14 @@ public sealed partial class DirectExecutionBackend
 						if (TryReadHostBytes(rip, 16, out var code))
 						{
 							Console.Error.WriteLine("[LOADER][INFO]   Code at RIP: " + BitConverter.ToString(code).Replace("-", " "));
+							if (code.Length >= 2 && code[0] == 0xF3 && (code[1] == 0xA4 || code[1] == 0xA5))
+							{
+								// rep movsb/movsd memcpy thunk: reconstruct the original call.
+								var copied = rdi - rax;
+								Console.Error.WriteLine(
+									$"[LOADER][INFO]   memcpy forensics: dest_start=0x{rax:X16} copied=0x{copied:X16} " +
+									$"src_start=0x{rsi - copied:X16} remaining=0x{rcx:X16}");
+							}
 							if (code[0] == 100)
 							{
 								Console.Error.WriteLine("[LOADER][ERROR]   Detected FS segment prefix - TLS access not patched!");
@@ -385,6 +406,202 @@ public sealed partial class DirectExecutionBackend
 		{
 			return false;
 		}
+	}
+
+	// ---- Write watchpoint (SHARPEMU_WATCH_WRITES=<hexaddr>[:<hexlen>]) --------------------------
+	// Page-protection watchpoint that logs every writer (guest or host) of a small guest range.
+	// The containing page is kept PAGE_READONLY once it exists; a write AV unprotects the page and
+	// single-steps (TF) the faulting instruction, then the written value is logged and the page
+	// re-protected. An event cap disarms the watch so a bulk copy sweeping through the page (e.g.
+	// a runaway memcpy) cannot stall the run.
+
+	private const int WatchWritesMaxEvents = 48;
+	private const int WatchWritesMaxSteps = 200_000;
+	private static int _watchWritesSteps;
+	private const uint WatchPageReadOnly = 0x02;
+	private const uint WatchPageReadWrite = 0x04;
+	private const int CtxEFlagsOffset = 0x44;
+	private const uint EFlagsTrapFlag = 0x100;
+
+	private static readonly (ulong Address, ulong Length) _watchWrites = ParseWatchWrites();
+	private static int _watchWritesArmed; // 0 = waiting for the page, 1 = armed, 2 = disarmed
+	private static int _watchWritesEvents;
+
+	[ThreadStatic] private static bool _watchWritesStepPending;
+	[ThreadStatic] private static ulong _watchWritesStepTarget;
+	[ThreadStatic] private static ulong _watchWritesStepRip;
+
+	private static (ulong Address, ulong Length) ParseWatchWrites()
+	{
+		var raw = Environment.GetEnvironmentVariable("SHARPEMU_WATCH_WRITES");
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			return (0, 0);
+		}
+
+		// '+' and ';' are accepted alongside ':' because MSYS shells path-convert colon-separated
+		// environment values before they reach the process.
+		var parts = raw.Split([':', ';', '+'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+		var addressText = parts[0].StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? parts[0][2..] : parts[0];
+		if (!ulong.TryParse(addressText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var address) ||
+			address == 0)
+		{
+			Console.Error.WriteLine($"[LOADER][WARN] SHARPEMU_WATCH_WRITES value '{raw}' could not be parsed; watch disabled.");
+			return (0, 0);
+		}
+
+		ulong length = 8;
+		if (parts.Length > 1)
+		{
+			var lengthText = parts[1].StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? parts[1][2..] : parts[1];
+			if (ulong.TryParse(lengthText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var parsedLength) &&
+				parsedLength > 0)
+			{
+				length = parsedLength;
+			}
+		}
+
+		return (address, length);
+	}
+
+	private static ulong WatchWritesPage => _watchWrites.Address & ~0xFFFUL;
+
+	private static void StartWatchWritesArmingThread()
+	{
+		if (_watchWrites.Address == 0)
+		{
+			return;
+		}
+
+		Console.Error.WriteLine(
+			$"[LOADER][INFO] watch-writes requested @0x{_watchWrites.Address:X16} len=0x{_watchWrites.Length:X}; arming once the page is committed.");
+		var armingThread = new Thread(static () =>
+		{
+			while (Volatile.Read(ref _watchWritesArmed) == 0)
+			{
+				TryArmWatchWrites();
+				Thread.Sleep(20);
+			}
+		})
+		{
+			IsBackground = true,
+			Name = "sharpemu-watch-writes",
+		};
+		armingThread.Start();
+	}
+
+	private static unsafe void TryArmWatchWrites()
+	{
+		var page = WatchWritesPage;
+		if (VirtualQuery((void*)page, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+			mbi.State != MEM_COMMIT ||
+			(mbi.Protect & (0x04u | 0x08u | 0x40u | 0x80u)) == 0)
+		{
+			return;
+		}
+
+		uint oldProtect;
+		if (VirtualProtect((void*)page, 0x1000, WatchPageReadOnly, &oldProtect))
+		{
+			Volatile.Write(ref _watchWritesArmed, 1);
+			Console.Error.WriteLine($"[LOADER][WARN] watch-writes ARMED on page 0x{page:X16}.");
+			Console.Error.Flush();
+		}
+	}
+
+	private unsafe bool TryHandleWatchedWriteFault(EXCEPTION_RECORD* exceptionRecord, void* contextRecord, ulong rip)
+	{
+		if (Volatile.Read(ref _watchWritesArmed) != 1 || exceptionRecord->NumberParameters < 2)
+		{
+			return false;
+		}
+
+		ulong accessType = *exceptionRecord->ExceptionInformation;
+		ulong target = exceptionRecord->ExceptionInformation[1];
+		if (accessType != 1 || (target & ~0xFFFUL) != WatchWritesPage)
+		{
+			return false;
+		}
+
+		uint oldProtect;
+		VirtualProtect((void*)WatchWritesPage, 0x1000, WatchPageReadWrite, &oldProtect);
+		_watchWritesStepPending = true;
+		_watchWritesStepTarget = target;
+		_watchWritesStepRip = rip;
+		var eflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
+		Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(eflags | EFlagsTrapFlag));
+		return true;
+	}
+
+	private unsafe bool TryCompleteWatchedWriteStep(void* contextRecord)
+	{
+		if (!_watchWritesStepPending)
+		{
+			return false;
+		}
+
+		_watchWritesStepPending = false;
+		var target = _watchWritesStepTarget;
+		var writerRip = _watchWritesStepRip;
+		var inRange = target >= _watchWrites.Address && target < _watchWrites.Address + _watchWrites.Length;
+		// Only in-range writes count against the cap: the page carries heavy unrelated traffic
+		// (every neighbouring record) and would exhaust the budget before the watched slot is hit.
+		var eventIndex = inRange ? Interlocked.Increment(ref _watchWritesEvents) : 0;
+		var stepIndex = Interlocked.Increment(ref _watchWritesSteps);
+		if (stepIndex >= WatchWritesMaxSteps)
+		{
+			if (Interlocked.Exchange(ref _watchWritesArmed, 2) == 1)
+			{
+				Console.Error.WriteLine($"[LOADER][WARN] watch-writes disarmed (step cap {WatchWritesMaxSteps} reached); page left writable.");
+				Console.Error.Flush();
+			}
+
+			var restoreEflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
+			Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(restoreEflags & ~EFlagsTrapFlag));
+			return true;
+		}
+
+		if (inRange || stepIndex <= 6)
+		{
+			ulong value = 0;
+			try
+			{
+				value = (ulong)Marshal.ReadInt64((nint)(target & ~7UL));
+			}
+			catch
+			{
+			}
+
+			var instructionText = "?";
+			if (TryReadHostBytes(writerRip, 15, out var codeBytes) &&
+				IcedDecoder.TryDecode(writerRip, codeBytes, out var instruction))
+			{
+				instructionText = instruction.Text;
+			}
+
+			Console.Error.WriteLine(
+				$"[LOADER][WARN] watch-writes {(inRange ? $"IN-RANGE hit#{eventIndex}" : $"page-step#{stepIndex}")}: " +
+				$"writer=0x{writerRip:X16} '{instructionText}' target=0x{target:X16} qword=0x{value:X16}");
+			Console.Error.Flush();
+		}
+
+		var eflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
+		Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(eflags & ~EFlagsTrapFlag));
+
+		if (eventIndex >= WatchWritesMaxEvents)
+		{
+			if (Interlocked.Exchange(ref _watchWritesArmed, 2) == 1)
+			{
+				Console.Error.WriteLine("[LOADER][WARN] watch-writes disarmed (event cap reached); page left writable.");
+				Console.Error.Flush();
+			}
+
+			return true;
+		}
+
+		uint reArmProtect;
+		VirtualProtect((void*)WatchWritesPage, 0x1000, WatchPageReadOnly, &reArmProtect);
+		return true;
 	}
 
 	private static readonly bool _skipGuestDivideByZero =
