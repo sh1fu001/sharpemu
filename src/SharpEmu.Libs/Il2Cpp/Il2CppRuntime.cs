@@ -6,6 +6,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using SharpEmu.HLE;
 using SharpEmu.Logging;
 
 namespace SharpEmu.Libs.Il2Cpp;
@@ -108,6 +109,11 @@ public sealed class Il2CppRuntime
     private ulong _moduleBase;
     private ulong _moduleEnd;
 
+    // Guest-space heap for every block handed to the game; attached by the first il2cpp export call
+    // that can see the CPU memory (see Il2CppRuntimeExports.EnsureAllocatorAttached).
+    private Il2CppGuestHeap? _guestHeap;
+    private bool _hostAllocationWarned;
+
     public bool MetadataAvailable => _metadata is not null;
 
     public bool CodeRegistrationAvailable => _codeRegistration is not null;
@@ -148,6 +154,60 @@ public sealed class Il2CppRuntime
     private readonly Dictionary<int, nint> _assemblyNameByImageIndex = new();
     private nint _domainAssemblies;
 
+    /// <summary>
+    /// Routes all subsequent object allocations into guest address space. Host-allocated blocks are
+    /// dereferenceable under direct execution but invisible to the emulator's bounds-checked guest
+    /// memory interface, which broke every HLE path handed an il2cpp pointer back. Idempotent.
+    /// </summary>
+    public void AttachAllocator(IGuestMemoryAllocator allocator)
+    {
+        if (allocator is null || Volatile.Read(ref _guestHeap) is not null)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _guestHeap ??= new Il2CppGuestHeap(allocator);
+        }
+    }
+
+    /// <summary>
+    /// Allocates a zeroed block in guest space; falls back to host memory before the allocator is
+    /// attached (or on arena exhaustion) and returns 0 only when the size is unsatisfiable anywhere,
+    /// so guest-driven garbage sizes surface as NULL instead of a host OutOfMemoryException.
+    /// </summary>
+    public unsafe nint AllocateBlock(ulong size)
+    {
+        var heap = Volatile.Read(ref _guestHeap);
+        if (heap is not null)
+        {
+            var address = heap.AllocateZeroed(size);
+            if (address != 0)
+            {
+                return unchecked((nint)address);
+            }
+        }
+        else if (!_hostAllocationWarned)
+        {
+            _hostAllocationWarned = true;
+            Log.Warning("il2cpp allocation requested before the guest allocator was attached; using host memory.");
+        }
+
+        try
+        {
+            return unchecked((nint)NativeMemory.AllocZeroed((nuint)size));
+        }
+        catch (OutOfMemoryException)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>Recycles a guest-heap block; false means the pointer is not ours (host-allocated).</summary>
+    public bool TryFreeBlock(nint address) =>
+        Volatile.Read(ref _guestHeap)?.Free(unchecked((ulong)address)) == true;
+
     /// <summary>Returns a stable, non-null, zeroed handle for a named runtime object (allocated once).</summary>
     public unsafe nint GetOpaqueHandle(string key)
     {
@@ -158,7 +218,7 @@ public sealed class Il2CppRuntime
                 return existing;
             }
 
-            var handle = (nint)NativeMemory.AllocZeroed(OpaqueHandleSize);
+            var handle = AllocateBlock(OpaqueHandleSize);
             _opaqueHandles[key] = handle;
             return handle;
         }
@@ -303,7 +363,7 @@ public sealed class Il2CppRuntime
 
             if (_domainAssemblies == 0)
             {
-                var block = (nint*)NativeMemory.AllocZeroed(count, (nuint)sizeof(nint));
+                var block = (nint*)AllocateBlock((ulong)count * (ulong)sizeof(nint));
                 for (var i = 0; i < (int)count; i++)
                 {
                     block[i] = GetOrCreateAssembly(i);
@@ -1128,7 +1188,7 @@ public sealed class Il2CppRuntime
         var length = value.Length;
         // header (16) + int32 length (4) + (length+1) UTF-16 code units.
         var totalSize = (nuint)(ObjectHeaderSize + sizeof(int) + (length + 1) * sizeof(char));
-        var block = (byte*)NativeMemory.AllocZeroed(totalSize);
+        var block = (byte*)AllocateBlock(totalSize);
         *(nint*)block = ResolveStringClass();
         *(int*)(block + ObjectHeaderSize) = length;
         var chars = (char*)(block + ObjectHeaderSize + sizeof(int));
@@ -1173,7 +1233,7 @@ public sealed class Il2CppRuntime
                 return existing;
             }
 
-            var block = (byte*)NativeMemory.AllocZeroed(ClassBlockSize);
+            var block = (byte*)AllocateBlock(ClassBlockSize);
             var elementNamePointer = GetClassName(elementClass);
             var elementName = elementNamePointer == 0
                 ? "Object"
@@ -1216,7 +1276,7 @@ public sealed class Il2CppRuntime
 
             var byteLength = checked(length * (ulong)elementSize);
             var totalSize = checked((nuint)(ArrayHeaderSize + byteLength));
-            var block = (byte*)NativeMemory.AllocZeroed(totalSize);
+            var block = (byte*)AllocateBlock(totalSize);
             *(nint*)block = arrayClass;
             *(ulong*)(block + ArrayLengthOffset) = length;
             var handle = (nint)block;
@@ -1260,7 +1320,7 @@ public sealed class Il2CppRuntime
         }
 
         var size = Math.Max((ulong)GetInstanceSize(classHandle), (ulong)ObjectHeaderSize);
-        var block = (byte*)NativeMemory.AllocZeroed((nuint)size);
+        var block = (byte*)AllocateBlock(size);
         *(nint*)block = classHandle;
         return (nint)block;
     }
@@ -1313,7 +1373,7 @@ public sealed class Il2CppRuntime
             return existing;
         }
 
-        var block = (nint*)NativeMemory.AllocZeroed(OpaqueHandleSize);
+        var block = (nint*)AllocateBlock(OpaqueHandleSize);
         var handle = (nint)block;
         _imageByIndex[imageIndex] = handle;
         _imageIndexByHandle[handle] = imageIndex;
@@ -1334,7 +1394,7 @@ public sealed class Il2CppRuntime
             return existing;
         }
 
-        var block = (nint*)NativeMemory.AllocZeroed(OpaqueHandleSize);
+        var block = (nint*)AllocateBlock(OpaqueHandleSize);
         var handle = (nint)block;
         _assemblyByImageIndex[imageIndex] = handle;
         _imageIndexByAssembly[handle] = imageIndex;
@@ -1373,7 +1433,7 @@ public sealed class Il2CppRuntime
             return existing;
         }
 
-        var block = (byte*)NativeMemory.AllocZeroed(MethodInfoSize);
+        var block = (byte*)AllocateBlock(MethodInfoSize);
         *(nint*)(block + MethodInfo_Name) = AllocateCString(_metadata.GetMethodName(methodIndex));
         *(nint*)(block + MethodInfo_Class) = GetOrCreateClass(_metadata.GetMethodDeclaringType(methodIndex));
         if (_codeRegistration is not null)
@@ -1423,7 +1483,7 @@ public sealed class Il2CppRuntime
             return existing;
         }
 
-        var block = (byte*)NativeMemory.AllocZeroed(FieldInfoSize);
+        var block = (byte*)AllocateBlock(FieldInfoSize);
         *(nint*)(block + FieldInfo_Name) = AllocateCString(fieldName);
         *(nint*)(block + 0x08) = unchecked((nint)_codeRegistration.GetTypePointer(
             _metadata.GetFieldTypeIndex(globalFieldIndex)));
@@ -1486,7 +1546,7 @@ public sealed class Il2CppRuntime
 
             // This is opaque to callers except through the custom_attrs_* API. Keep enough inline
             // information for defensive guest reads while the authoritative token stays host-side.
-            var block = (uint*)NativeMemory.AllocZeroed(0x20);
+            var block = (uint*)AllocateBlock(0x20);
             block[0] = ownerToken;
             block[1] = unchecked((uint)attributes.Count);
             var handle = (nint)block;
@@ -1566,10 +1626,10 @@ public sealed class Il2CppRuntime
             unchecked((ushort)Math.Min(_metadata.GetNestedTypeCount(typeIndex), ushort.MaxValue));
     }
 
-    private static unsafe nint AllocateCString(string value)
+    private unsafe nint AllocateCString(string value)
     {
         var bytes = Encoding.UTF8.GetBytes(value);
-        var block = (byte*)NativeMemory.AllocZeroed((nuint)(bytes.Length + 1));
+        var block = (byte*)AllocateBlock((ulong)bytes.Length + 1);
         bytes.CopyTo(new Span<byte>(block, bytes.Length));
         return (nint)block;
     }

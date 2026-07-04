@@ -54,7 +54,7 @@ public static class Il2CppPlatformExports
         LibraryName = "libIl2Cpp")]
     public static int UnityMonoSetUserMallocMutex(CpuContext ctx)
     {
-        // The host allocator (NativeMemory.Alloc/Free, used by il2cpp_alloc/il2cpp_free) is already
+        // The allocator behind il2cpp_alloc/il2cpp_free (Il2CppGuestHeap, host fallback) is already
         // thread-safe, so there is no user-provided mutex to install.
         Log.Trace($"unity_mono_set_user_malloc_mutex(mutex=0x{ctx[CpuRegister.Rdi]:X16}) ignored.");
         ctx[CpuRegister.Rax] = 0;

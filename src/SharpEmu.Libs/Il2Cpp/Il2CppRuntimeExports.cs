@@ -55,6 +55,7 @@ public static partial class Il2CppRuntimeExports
     // points the game reaches earliest.
     private static void EnsureRuntimeAttached(CpuContext ctx)
     {
+        EnsureAllocatorAttached(ctx);
         if (Il2CppRuntime.Instance.CodeRegistrationAvailable)
         {
             return;
@@ -69,6 +70,17 @@ public static partial class Il2CppRuntimeExports
         }
 
         Il2CppRuntime.Instance.Attach(new CpuMemoryReader(ctx.Memory), module.BaseAddress, module.EndAddress);
+    }
+
+    // Routes il2cpp object allocations into guest address space as soon as an export sees the CPU
+    // memory. Idempotent and cheap; must run before the first allocation a handler can trigger
+    // (il2cpp_init is the game's first il2cpp call, so hooking it and il2cpp_alloc covers all paths).
+    private static void EnsureAllocatorAttached(CpuContext ctx)
+    {
+        if (ctx.Memory is IGuestMemoryAllocator allocator)
+        {
+            Il2CppRuntime.Instance.AttachAllocator(allocator);
+        }
     }
 
     [SysAbiExport(Nid = "__il2cpp_dyn_init_utf16", ExportName = "il2cpp_init_utf16", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
@@ -261,11 +273,13 @@ public static partial class Il2CppRuntimeExports
     // ---- Memory -------------------------------------------------------------------------------
 
     [SysAbiExport(Nid = "__il2cpp_dyn_alloc", ExportName = "il2cpp_alloc", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
-    public static unsafe int Alloc(CpuContext ctx)
+    public static int Alloc(CpuContext ctx)
     {
+        EnsureAllocatorAttached(ctx);
         var size = ctx[CpuRegister.Rdi];
-        var ptr = size == 0 ? null : NativeMemory.Alloc((nuint)size);
-        ctx[CpuRegister.Rax] = unchecked((ulong)ptr);
+        ctx[CpuRegister.Rax] = size == 0
+            ? 0
+            : unchecked((ulong)Il2CppRuntime.Instance.AllocateBlock(size));
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
 
@@ -273,8 +287,9 @@ public static partial class Il2CppRuntimeExports
     public static unsafe int Free(CpuContext ctx)
     {
         var address = ctx[CpuRegister.Rdi];
-        if (address != 0)
+        if (address != 0 && !Il2CppRuntime.Instance.TryFreeBlock(unchecked((nint)address)))
         {
+            // Not a guest-heap block: allocated on the host before the allocator attached.
             NativeMemory.Free((void*)address);
         }
 
@@ -828,7 +843,7 @@ public static partial class Il2CppRuntimeExports
 
     // ---- Threading ------------------------------------------------------------------------------
     // il2cpp_thread_attach/current hand the guest an opaque "thread" pointer. Rather than an
-    // arbitrary non-dereferenceable value, each host OS thread gets a small zeroed native buffer so
+    // arbitrary non-dereferenceable value, each host OS thread gets a small zeroed guest buffer so
     // that if guest code reads a field out of it (expecting an Il2CppThread-shaped struct), it reads
     // zero instead of faulting.
 
@@ -836,7 +851,7 @@ public static partial class Il2CppRuntimeExports
 
     private static readonly ThreadLocal<nint> _threadHandles = new(static () => AllocateThreadHandle());
 
-    private static unsafe nint AllocateThreadHandle() => unchecked((nint)NativeMemory.AllocZeroed(ThreadHandleBufferSize));
+    private static nint AllocateThreadHandle() => Il2CppRuntime.Instance.AllocateBlock(ThreadHandleBufferSize);
 
     [SysAbiExport(Nid = "__il2cpp_dyn_thread_attach", ExportName = "il2cpp_thread_attach", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
     public static int ThreadAttach(CpuContext ctx)

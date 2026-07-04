@@ -22,7 +22,9 @@ public sealed unsafe class PhysicalVirtualMemory :
     private bool _disposed;
     private const ulong PageSize = 0x1000;
     private const ulong GuestAllocationArenaAddress = 0x00006000_0000_0000;
-    private const ulong GuestAllocationArenaSize = 0x0100_0000;
+    // 256 MiB: the arena also backs all il2cpp objects (about 50k class blocks plus strings, method
+    // and field infos, and il2cpp_alloc buffers), which need well over the previous 16 MiB.
+    private const ulong GuestAllocationArenaSize = 0x1000_0000;
     private const ulong GuestAllocationArenaStartOffset = PageSize;
     private const ulong LargeDataReserveThreshold = 0x4000_0000UL; // 1 GiB
 
