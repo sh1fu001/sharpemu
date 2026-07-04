@@ -291,6 +291,82 @@ public static class KernelMemoryCompatExports
         return true;
     }
 
+    /// <summary>Zeroes a guest range in chunks, skipping unwritable (lazily reserved) pages.</summary>
+    private static void ZeroGuestRange(CpuContext ctx, ulong address, ulong length)
+    {
+        var zeroes = new byte[(int)Math.Min(length, (ulong)MemsetChunkSize)];
+        for (ulong offset = 0; offset < length;)
+        {
+            var chunkLength = (int)Math.Min((ulong)zeroes.Length, length - offset);
+            _ = ctx.Memory.TryWrite(address + offset, zeroes.AsSpan(0, chunkLength));
+            offset += (ulong)chunkLength;
+        }
+    }
+
+    // Chronological record of every direct-memory mapping (offset, length, virtual address).
+    // Direct memory is physical on the console: games unmap a VA and remap the same (often grown)
+    // direct range at a different VA expecting their data to reappear there. The emulator has no
+    // separate physical store, so on every new direct mapping the bytes of previously mapped
+    // overlapping direct ranges are copied forward from their old VA (whose pages munmap keeps
+    // committed) to the new one.
+    private const int DirectMappingHistoryLimit = 4096;
+    private static readonly List<(ulong Direct, ulong Length, ulong Va)> _directMappingHistory = new();
+
+    private static void CopyForwardRemappedDirectMemory(
+        CpuContext ctx,
+        ulong directStart,
+        ulong length,
+        ulong newVa)
+    {
+        if (length == 0)
+        {
+            return;
+        }
+
+        var newDirectEnd = directStart + length;
+        // Oldest first so that data from a newer mapping of the same direct bytes wins.
+        foreach (var (oldDirect, oldLength, oldVa) in _directMappingHistory)
+        {
+            var overlapStart = Math.Max(directStart, oldDirect);
+            var overlapEnd = Math.Min(newDirectEnd, oldDirect + oldLength);
+            if (overlapStart >= overlapEnd)
+            {
+                continue;
+            }
+
+            var source = oldVa + (overlapStart - oldDirect);
+            var destination = newVa + (overlapStart - directStart);
+            if (source != destination)
+            {
+                CopyGuestRange(ctx, source, destination, overlapEnd - overlapStart);
+            }
+        }
+
+        if (_directMappingHistory.Count >= DirectMappingHistoryLimit)
+        {
+            _directMappingHistory.RemoveAt(0);
+        }
+
+        _directMappingHistory.Add((directStart, length, newVa));
+    }
+
+    private static void CopyGuestRange(CpuContext ctx, ulong source, ulong destination, ulong length)
+    {
+        var buffer = new byte[(int)Math.Min(length, (ulong)MemsetChunkSize)];
+        for (ulong offset = 0; offset < length;)
+        {
+            var chunkLength = (int)Math.Min((ulong)buffer.Length, length - offset);
+            var span = buffer.AsSpan(0, chunkLength);
+            if (!ctx.Memory.TryRead(source + offset, span))
+            {
+                return;
+            }
+
+            _ = ctx.Memory.TryWrite(destination + offset, span);
+            offset += (ulong)chunkLength;
+        }
+    }
+
     [SysAbiExport(
         Nid = "8zTFvBIAIN8",
         ExportName = "memset",
@@ -3682,6 +3758,8 @@ public static class KernelMemoryCompatExports
             {
                 _mappedRegions[mappedAddress] = mappedRegion;
             }
+
+            CopyForwardRemappedDirectMemory(ctx, directMemoryStart, length, mappedAddress);
         }
 
         if (!TryWriteUInt64Compat(ctx, inOutAddressPointer, mappedAddress))
@@ -3772,6 +3850,10 @@ public static class KernelMemoryCompatExports
             }
         }
 
+        // Flexible memory hands out fresh physical pages on the console, so a mapping must read as
+        // zeros even when it lands on a VA whose previous contents we preserved across munmap.
+        ZeroGuestRange(ctx, mappedAddress, length);
+
         if (!TryWriteUInt64Compat(ctx, inOutAddressPointer, mappedAddress))
         {
             return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
@@ -3835,11 +3917,13 @@ public static class KernelMemoryCompatExports
             }
         }
 
-        if (ctx.Memory is not IGuestMemoryReleaser releaser ||
-            !releaser.TryReleaseGuestMemory(address, length))
-        {
-            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_NOT_FOUND;
-        }
+        // Do NOT VirtualFree or wipe the host memory. Direct memory is physical on the console:
+        // games munmap a VA and immediately remap the same direct-memory offset (protection
+        // changes, decommit dances) expecting the CONTENTS to survive, and keep live pointers into
+        // re-reserved ranges (asset deserializer stream, FMOD's output object). The emulator has no
+        // separate physical backing store, so the only faithful behaviour is to keep the committed
+        // pages and their bytes; freshness for flexible memory is provided by zeroing at map time
+        // instead (see KernelMapNamedFlexibleMemory). Only the bookkeeping below is updated.
 
         lock (_memoryGate)
         {

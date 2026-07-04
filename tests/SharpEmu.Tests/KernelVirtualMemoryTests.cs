@@ -70,7 +70,7 @@ public sealed class KernelVirtualMemoryTests
     }
 
     [Fact]
-    public void Munmap_ReleasesRangeSplitByMprotect()
+    public void Munmap_PreservesContentsAndUnregistersRangeSplitByMprotect()
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -95,7 +95,12 @@ public sealed class KernelVirtualMemoryTests
         context[CpuRegister.Rdi] = rangeAddress;
         context[CpuRegister.Rsi] = rangeSize;
         Assert.Equal(0, KernelMemoryCompatExports.KernelMunmap(context));
-        Assert.False(memory.IsAccessible(rangeAddress, 1));
+        // Direct memory is physical on the console: games remap the same direct range after
+        // munmap and expect its bytes to survive, so the host pages stay committed/accessible.
+        Assert.True(memory.IsAccessible(rangeAddress, 1));
+        // The mapping bookkeeping, however, must forget the range: a second munmap has nothing
+        // left to operate on.
+        Assert.NotEqual(0, KernelMemoryCompatExports.KernelMunmap(context));
     }
 
     [Fact]
