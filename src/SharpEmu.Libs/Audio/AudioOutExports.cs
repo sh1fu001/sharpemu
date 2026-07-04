@@ -5,11 +5,14 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using SharpEmu.HLE;
+using SharpEmu.Logging;
 
 namespace SharpEmu.Libs.Audio;
 
 public static class AudioOutExports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Audio");
+
     private const ushort OutputConnectedPrimary = 0x01;
     private const ushort OutputConnectedTertiary = 0x04;
     private const ushort OutputConnectedHeadphone = 0x40;
@@ -36,6 +39,7 @@ public static class AudioOutExports
         LibraryName = "libSceAudioOut")]
     public static int AudioOutInit(CpuContext ctx)
     {
+        Log.Info("sceAudioOutInit()");
         ctx[CpuRegister.Rax] = 0;
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
@@ -52,6 +56,9 @@ public static class AudioOutExports
         var bufferFrames = unchecked((uint)ctx[CpuRegister.Rcx]);
         var sampleRate = unchecked((uint)ctx[CpuRegister.R8]);
         var channels = GetChannelCount(portType, unchecked((uint)ctx[CpuRegister.R9]));
+        Log.Info(
+            $"sceAudioOutOpen(user={ctx[CpuRegister.Rdi]:X} type={portType} index={unchecked((int)ctx[CpuRegister.Rdx])} " +
+            $"len={bufferFrames} freq={sampleRate} param=0x{ctx[CpuRegister.R9]:X8}) -> handle={handle}");
         _ports[handle] = new AudioPort
         {
             Type = portType,

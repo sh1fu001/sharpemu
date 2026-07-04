@@ -141,6 +141,10 @@ public sealed partial class DirectExecutionBackend
 			{
 				return -1;
 			}
+			if (exceptionCode == 0xC0000094u && TryHandleGuestDivideByZero(contextRecord, rip))
+			{
+				return -1;
+			}
 
 			switch (exceptionCode)
 			{
@@ -273,33 +277,33 @@ public sealed partial class DirectExecutionBackend
 					Console.Error.WriteLine("[LOADER][ERROR]     - Need to implement HLE for this NID");
 					try
 					{
-						byte[] code = new byte[16];
-						Marshal.Copy((nint)rip, code, 0, code.Length);
-						Console.Error.WriteLine("[LOADER][INFO]   Code at RIP: " + BitConverter.ToString(code).Replace("-", " "));
-						if (code[0] == 100)
+						// Each read is gated on page readability: a fault RIP can sit at the very
+						// start of a 128-byte trampoline allocation, where RIP-16 lands on an
+						// unmapped page and a raw read would kill the crash handler itself.
+						if (TryReadHostBytes(rip, 16, out var code))
 						{
-							Console.Error.WriteLine("[LOADER][ERROR]   Detected FS segment prefix - TLS access not patched!");
+							Console.Error.WriteLine("[LOADER][INFO]   Code at RIP: " + BitConverter.ToString(code).Replace("-", " "));
+							if (code[0] == 100)
+							{
+								Console.Error.WriteLine("[LOADER][ERROR]   Detected FS segment prefix - TLS access not patched!");
+							}
+							else if (code[0] == 101)
+							{
+								Console.Error.WriteLine("[LOADER][ERROR]   Detected GS segment prefix - TLS access not patched!");
+							}
+							else if (code[0] == 197 || code[0] == 196)
+							{
+								Console.Error.WriteLine("[LOADER][INFO]   Detected AVX instruction - check CPU support!");
+								Console.Error.WriteLine($"[LOADER][INFO]   RBP: 0x{rbp:X16} (mod 16 = {rbp % 16})");
+								Console.Error.WriteLine($"[LOADER][INFO]   RSP: 0x{rsp:X16} (mod 16 = {rsp % 16})");
+							}
 						}
-						else if (code[0] == 101)
+						if (rip > 16 && TryReadHostBytes(rip - 16, 16, out var before))
 						{
-							Console.Error.WriteLine("[LOADER][ERROR]   Detected GS segment prefix - TLS access not patched!");
-						}
-						else if (code[0] == 197 || code[0] == 196)
-						{
-							Console.Error.WriteLine("[LOADER][INFO]   Detected AVX instruction - check CPU support!");
-							Console.Error.WriteLine($"[LOADER][INFO]   RBP: 0x{rbp:X16} (mod 16 = {rbp % 16})");
-							Console.Error.WriteLine($"[LOADER][INFO]   RSP: 0x{rsp:X16} (mod 16 = {rsp % 16})");
-						}
-						if (rip > 16)
-						{
-							byte[] before = new byte[16];
-							Marshal.Copy((nint)(rip - 16), before, 0, before.Length);
 							Console.Error.WriteLine("[LOADER][INFO]   Code before RIP: " + BitConverter.ToString(before).Replace("-", " "));
 						}
-						if (rip > 32)
+						if (rip > 32 && TryReadHostBytes(rip - 32, 64, out var window))
 						{
-							byte[] window = new byte[64];
-							Marshal.Copy((nint)(rip - 32), window, 0, window.Length);
 							Console.Error.WriteLine("[LOADER][INFO]   Code window [RIP-0x20..]: " + BitConverter.ToString(window).Replace("-", " "));
 						}
 					}
@@ -311,6 +315,28 @@ public sealed partial class DirectExecutionBackend
 					DumpGuestDisasmDiagnostics(rip, rbp);
 					DumpGuestReferenceDiagnostics();
 					DumpGuestPointerWindowDiagnostics();
+					break;
+				case 0xC0000094u:
+					Console.Error.WriteLine("[LOADER][ERROR]   Type: Integer Division by Zero");
+					try
+					{
+						if (TryReadHostBytes(rip, 16, out var divCode))
+						{
+							Console.Error.WriteLine("[LOADER][INFO]   Code at RIP: " + BitConverter.ToString(divCode).Replace("-", " "));
+						}
+						if (rip > 48 && TryReadHostBytes(rip - 48, 80, out var divWindow))
+						{
+							Console.Error.WriteLine("[LOADER][INFO]   Code window [RIP-0x30..]: " + BitConverter.ToString(divWindow).Replace("-", " "));
+						}
+					}
+					catch
+					{
+						Console.Error.WriteLine("[LOADER][ERROR]   Could not read code at RIP");
+					}
+					DumpRecentImportTrace();
+					DumpGuestDisasmDiagnostics(rip, rbp);
+					DumpGuestPointerWindowDiagnostics();
+					DumpGuestByteScanDiagnostics();
 					break;
 				case 2147483651u:
 					Console.Error.WriteLine("[LOADER][WARNING]   Type: Breakpoint (int3)");
@@ -353,6 +379,59 @@ public sealed partial class DirectExecutionBackend
 			LastError = $"Guest executed UD2 at 0x{rip:X16}.";
 			Console.Error.WriteLine(
 				$"[LOADER][WARN] Guest UD2 at 0x{rip:X16}; returning control to the host.");
+			return true;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private static readonly bool _skipGuestDivideByZero =
+		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_SKIP_DIV_ZERO"), "1", StringComparison.Ordinal);
+
+	private readonly Dictionary<ulong, int> _skippedDivideSites = new();
+
+	// Emulates a guest integer division whose divisor is zero (e.g. FMOD's audio ring length when
+	// the audio configuration deserializes empty) as quotient 0 / remainder 0 and resumes at the
+	// next instruction, instead of letting the exception terminate the process. The affected
+	// subsystem degrades (silent audio) but boot can proceed to the next real wall. Opt-in via
+	// SHARPEMU_SKIP_DIV_ZERO=1 and restricted to guest code addresses.
+	private unsafe bool TryHandleGuestDivideByZero(void* contextRecord, ulong rip)
+	{
+		if (!_skipGuestDivideByZero || rip < 0x0000000800000000UL || rip >= 0x0000000810000000UL)
+		{
+			return false;
+		}
+
+		try
+		{
+			var bytes = new ReadOnlySpan<byte>((void*)rip, 15);
+			if (!IcedDecoder.TryDecode(rip, bytes, out var instruction) ||
+				(!string.Equals(instruction.Mnemonic, "Div", StringComparison.OrdinalIgnoreCase) &&
+				 !string.Equals(instruction.Mnemonic, "Idiv", StringComparison.OrdinalIgnoreCase)))
+			{
+				return false;
+			}
+
+			WriteCtxU64(contextRecord, CTX_RAX, 0);
+			WriteCtxU64(contextRecord, 136, 0); // RDX (remainder)
+			WriteCtxU64(contextRecord, 248, rip + (ulong)instruction.Length);
+
+			int count;
+			lock (_skippedDivideSites)
+			{
+				_skippedDivideSites.TryGetValue(rip, out count);
+				_skippedDivideSites[rip] = count + 1;
+			}
+
+			if (count < 4)
+			{
+				Console.Error.WriteLine(
+					$"[LOADER][WARN] Guest divide-by-zero at 0x{rip:X16} ({instruction.Text}); " +
+					"emulated as 0 and skipped (SHARPEMU_SKIP_DIV_ZERO).");
+			}
+
 			return true;
 		}
 		catch
@@ -588,6 +667,117 @@ public sealed partial class DirectExecutionBackend
 			}
 
 			DumpGuestInstructionStream($"extra-0x{address:X16}", address, 48);
+		}
+	}
+
+	// Reads host-process memory only after confirming every touched page is committed and readable,
+	// so crash-report dumps can never raise a nested exception inside the vectored handler.
+	private static unsafe bool TryReadHostBytes(ulong address, int length, out byte[] bytes)
+	{
+		bytes = Array.Empty<byte>();
+		if (address == 0 || length <= 0)
+		{
+			return false;
+		}
+
+		var page = address & ~0xFFFUL;
+		var lastPage = (address + (ulong)length - 1) & ~0xFFFUL;
+		for (var probe = page; probe <= lastPage; probe += 0x1000)
+		{
+			if (VirtualQuery((void*)probe, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+				mbi.State != MEM_COMMIT ||
+				!IsReadableProtection(mbi.Protect))
+			{
+				return false;
+			}
+		}
+
+		bytes = new byte[length];
+		Marshal.Copy((nint)address, bytes, 0, length);
+		return true;
+	}
+
+	// SHARPEMU_SCAN_BYTES=<hex>[,<hex>...]: scans executable guest code for raw byte patterns at
+	// crash time (e.g. "893568350000" finds every `mov [reg+0x3568], r32`) so the instruction that
+	// should have initialised a field can be located without external disassembly of the SELF.
+	private unsafe void DumpGuestByteScanDiagnostics()
+	{
+		var rawPatterns = Environment.GetEnvironmentVariable("SHARPEMU_SCAN_BYTES");
+		if (string.IsNullOrWhiteSpace(rawPatterns))
+		{
+			return;
+		}
+
+		const ulong scanBase = 0x0000000800000000UL;
+		const ulong scanEnd = 0x0000000810000000UL;
+		const int maxHitsPerPattern = 48;
+
+		foreach (var token in rawPatterns.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+		{
+			var normalized = token.Replace(" ", string.Empty);
+			if (normalized.Length < 4 || normalized.Length % 2 != 0)
+			{
+				continue;
+			}
+
+			var pattern = new byte[normalized.Length / 2];
+			var valid = true;
+			for (var i = 0; i < pattern.Length; i++)
+			{
+				if (!byte.TryParse(normalized.AsSpan(i * 2, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out pattern[i]))
+				{
+					valid = false;
+					break;
+				}
+			}
+
+			if (!valid)
+			{
+				continue;
+			}
+
+			var hits = 0;
+			ulong address = scanBase;
+			while (address < scanEnd && hits < maxHitsPerPattern)
+			{
+				if (VirtualQuery((void*)address, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0)
+				{
+					break;
+				}
+
+				ulong regionBase = mbi.BaseAddress;
+				ulong regionEnd = regionBase + mbi.RegionSize;
+				if (regionEnd <= address)
+				{
+					break;
+				}
+
+				if (mbi.State == MEM_COMMIT && IsReadableProtection(mbi.Protect) && IsExecutableProtection(mbi.Protect))
+				{
+					var span = new ReadOnlySpan<byte>((void*)regionBase, checked((int)(regionEnd - regionBase)));
+					var searchFrom = 0;
+					while (hits < maxHitsPerPattern)
+					{
+						var index = span[searchFrom..].IndexOf(pattern);
+						if (index < 0)
+						{
+							break;
+						}
+
+						var hitAddress = regionBase + (ulong)(searchFrom + index);
+						Console.Error.WriteLine($"[LOADER][INFO]   byte-scan '{normalized}' hit @0x{hitAddress:X16}");
+						hits++;
+						searchFrom += index + 1;
+					}
+				}
+
+				address = regionEnd;
+			}
+
+			if (hits == 0)
+			{
+				Console.Error.WriteLine($"[LOADER][INFO]   byte-scan '{normalized}': none");
+			}
 		}
 	}
 

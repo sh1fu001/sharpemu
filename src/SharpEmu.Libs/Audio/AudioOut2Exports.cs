@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 using SharpEmu.HLE;
+using SharpEmu.Logging;
 using System.Buffers.Binary;
 using System.Threading;
 
@@ -9,6 +10,8 @@ namespace SharpEmu.Libs.Audio;
 
 public static class AudioOut2Exports
 {
+    private static readonly SharpEmuLogger Log = SharpEmuLog.For("Audio");
+
     private const int AudioOut2ContextParamSize = 0x80;
     private const int AudioOut2ContextMemorySize = 0x10000;
     private const int AudioOut2ContextMemoryAlignment = 0x10000;
@@ -23,6 +26,7 @@ public static class AudioOut2Exports
         LibraryName = "libSceAudioOut2")]
     public static int AudioOut2Initialize(CpuContext ctx)
     {
+        Log.Info("sceAudioOut2Initialize()");
         ctx[CpuRegister.Rax] = 0;
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
@@ -125,6 +129,7 @@ public static class AudioOut2Exports
 
         var portId = unchecked((uint)Interlocked.Increment(ref _nextPortId)) & 0xFF;
         var handle = 0x2000_0000UL | ((ulong)(uint)type << 16) | portId;
+        Log.Info($"sceAudioOut2PortCreate(type={type} param=0x{paramAddress:X}) -> handle=0x{handle:X}");
         return TryWriteUInt64(ctx, outPortAddress, handle)
             ? SetReturn(ctx, 0)
             : SetReturn(ctx, (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);

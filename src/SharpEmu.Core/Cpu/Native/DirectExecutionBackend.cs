@@ -236,7 +236,9 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 	private readonly Dictionary<string, ulong> _runtimeSymbolsByName = new Dictionary<string, ulong>(StringComparer.Ordinal);
 
-	private readonly RecentImportTraceEntry[] _recentImportTrace = new RecentImportTraceEntry[64];
+	// 2048 deep: a single burst (e.g. an allocation cascade on one thread) can easily exceed 64
+	// entries and evict the other threads' calls the crash report actually needs.
+	private readonly RecentImportTraceEntry[] _recentImportTrace = new RecentImportTraceEntry[2048];
 
 	private int _recentImportTraceCount;
 
