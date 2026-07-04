@@ -244,16 +244,27 @@ public static class KernelMemoryCompatExports
         var effectiveAlignment = Math.Max(alignment, 0x1000UL);
         lock (_memoryGate)
         {
-            var desiredAddress = AlignUp(
-                _nextVirtualAddress == 0 ? 0x1_0000_0000UL : _nextVirtualAddress,
-                effectiveAlignment);
-            if (!TryReserveGuestVirtualRange(ctx, desiredAddress, mappedLength, OrbisProtCpuReadWrite, effectiveAlignment, out address) ||
+            // HLE-internal buffers must NOT be placed at _nextVirtualAddress: that is exactly where
+            // the game's own allocator reserves next, and pages dropped there deflect the game's
+            // sceKernelReserveVirtualRange growth (observed with AGC register defaults landing at the
+            // end of Unity's direct-memory arena). Prefer the emulator's dedicated guest arena, far
+            // from any address the game plans with.
+            if (ctx.Memory is not IGuestMemoryAllocator arena ||
+                !arena.TryAllocateGuestMemory(mappedLength, effectiveAlignment, out address) ||
                 address == 0)
             {
-                return false;
+                var desiredAddress = AlignUp(
+                    _nextVirtualAddress == 0 ? 0x1_0000_0000UL : _nextVirtualAddress,
+                    effectiveAlignment);
+                if (!TryReserveGuestVirtualRange(ctx, desiredAddress, mappedLength, OrbisProtCpuReadWrite, effectiveAlignment, out address) ||
+                    address == 0)
+                {
+                    return false;
+                }
+
+                _nextVirtualAddress = Math.Max(_nextVirtualAddress, address + mappedLength);
             }
 
-            _nextVirtualAddress = Math.Max(_nextVirtualAddress, address + mappedLength);
             _mappedRegions[address] = new MappedRegion(
                 address,
                 mappedLength,

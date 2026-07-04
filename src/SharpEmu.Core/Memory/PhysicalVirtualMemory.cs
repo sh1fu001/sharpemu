@@ -42,6 +42,9 @@ public sealed unsafe class PhysicalVirtualMemory :
     private ulong _guestAllocationArenaBase;
     private ulong _guestAllocationOffset;
 
+    private static readonly bool TraceSmallAllocations =
+        string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_SMALL_ALLOCS"), "1", StringComparison.Ordinal);
+
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern void* VirtualAlloc(void* lpAddress, nuint dwSize, uint flAllocationType, uint flProtect);
 
@@ -194,6 +197,12 @@ public sealed unsafe class PhysicalVirtualMemory :
             ? "reserved data memory (lazy commit)"
             : (executable ? "executable memory" : "data memory");
         Log.Info($"Allocated {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes)");
+        if (TraceSmallAllocations && alignedSize <= 0x2000)
+        {
+            // Diagnostic aid (SHARPEMU_LOG_SMALL_ALLOCS=1): page-sized AllocateAt calls have caused
+            // silent address-space pollution that deflects later guest reservations; identify callers.
+            Log.Info($"Small allocation caller stack:{Environment.NewLine}{Environment.StackTrace}");
+        }
 
         return actualAddress;
     }
