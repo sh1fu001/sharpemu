@@ -493,11 +493,19 @@ public sealed partial class DirectExecutionBackend
 	// depth, restores the byte, single-steps over the original instruction, then re-patches. This is
 	// the general "instrument any internal game function" tool the serialization trace needs.
 	private static readonly ulong[] _guestBreakpoints = ParseGuestBreakpoints();
-	// SHARPEMU_GUEST_BP_MATCH="<reg>,<hexlo>,<hexhi>" restricts logging to hits where the named
-	// integer register is in [lo,hi] — the only way to catch the one faulting call to an otherwise
-	// hot function (e.g. the string reader whose cursor lands in the crash region).
-	private static readonly (int CtxOffset, ulong Lo, ulong Hi) _guestBreakpointMatch = ParseGuestBreakpointMatch();
-	private const int GuestBreakpointMaxHitsLogged = 200;
+	// SHARPEMU_GUEST_BP_MATCH="<reg>[|<reg>...],<hexlo>,<hexhi>" restricts logging to hits where ANY
+	// of the named integer registers is in [lo,hi] — the only way to catch the one faulting call to an
+	// otherwise hot function (e.g. the string reader whose cursor lands in the crash region). Multiple
+	// registers (separated by '|' or '+') let a single run watch, e.g., an allocator's result register
+	// AND a free's pointer argument against the same address window.
+	private static readonly (int[] CtxOffsets, ulong Lo, ulong Hi) _guestBreakpointMatch = ParseGuestBreakpointMatch();
+	// SHARPEMU_GUEST_BP_MAXHITS caps how many matching hits are logged per breakpoint (default 200).
+	// Raise it to capture activity that only happens late in boot (e.g. an allocation that is preceded
+	// by thousands of churning temporaries in the same address window).
+	private static readonly int GuestBreakpointMaxHitsLogged =
+		int.TryParse(Environment.GetEnvironmentVariable("SHARPEMU_GUEST_BP_MAXHITS"), out var cap) && cap > 0
+			? cap
+			: 200;
 	private static readonly Dictionary<ulong, byte> _guestBreakpointOriginal = new();
 	private static readonly Dictionary<ulong, int> _guestBreakpointHits = new();
 	private static int _guestBreakpointsArmed;
@@ -526,21 +534,21 @@ public sealed partial class DirectExecutionBackend
 		return result.ToArray();
 	}
 
-	private static (int CtxOffset, ulong Lo, ulong Hi) ParseGuestBreakpointMatch()
+	private static (int[] CtxOffsets, ulong Lo, ulong Hi) ParseGuestBreakpointMatch()
 	{
 		var raw = Environment.GetEnvironmentVariable("SHARPEMU_GUEST_BP_MATCH");
 		if (string.IsNullOrWhiteSpace(raw))
 		{
-			return (-1, 0, 0);
+			return (Array.Empty<int>(), 0, 0);
 		}
 
 		var parts = raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 		if (parts.Length != 3)
 		{
-			return (-1, 0, 0);
+			return (Array.Empty<int>(), 0, 0);
 		}
 
-		var offset = parts[0].ToLowerInvariant() switch
+		static int OffsetOf(string reg) => reg.ToLowerInvariant() switch
 		{
 			"rax" => CTX_RAX,
 			"rcx" => CTX_RCX,
@@ -557,11 +565,21 @@ public sealed partial class DirectExecutionBackend
 			_ => -1,
 		};
 
+		var offsets = new List<int>();
+		foreach (var reg in parts[0].Split(['|', '+'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+		{
+			var offset = OffsetOf(reg);
+			if (offset >= 0)
+			{
+				offsets.Add(offset);
+			}
+		}
+
 		static ulong Hex(string s) => ulong.TryParse(
 			s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s,
 			NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) ? v : 0;
 
-		return offset < 0 ? (-1, 0, 0) : (offset, Hex(parts[1]), Hex(parts[2]));
+		return offsets.Count == 0 ? (Array.Empty<int>(), 0, 0) : (offsets.ToArray(), Hex(parts[1]), Hex(parts[2]));
 	}
 
 	private static void StartGuestBreakpointArmingThread()
@@ -634,10 +652,18 @@ public sealed partial class DirectExecutionBackend
 		}
 
 		var matches = true;
-		if (_guestBreakpointMatch.CtxOffset >= 0)
+		if (_guestBreakpointMatch.CtxOffsets.Length > 0)
 		{
-			var value = ReadCtxU64(contextRecord, _guestBreakpointMatch.CtxOffset);
-			matches = value >= _guestBreakpointMatch.Lo && value <= _guestBreakpointMatch.Hi;
+			matches = false;
+			foreach (var ctxOffset in _guestBreakpointMatch.CtxOffsets)
+			{
+				var value = ReadCtxU64(contextRecord, ctxOffset);
+				if (value >= _guestBreakpointMatch.Lo && value <= _guestBreakpointMatch.Hi)
+				{
+					matches = true;
+					break;
+				}
+			}
 		}
 
 		var hit = 0;
@@ -662,8 +688,9 @@ public sealed partial class DirectExecutionBackend
 			var r13 = ReadCtxU64(contextRecord, 224);
 			var r14 = ReadCtxU64(contextRecord, 232);
 			var r15 = ReadCtxU64(contextRecord, 240);
+			var rax = ReadCtxU64(contextRecord, CTX_RAX);
 			Console.Error.WriteLine(
-				$"[LOADER][WARN] guest-bp 0x{rip:X16} hit#{hit + 1}: rdi=0x{rdi:X16} rsi=0x{rsi:X16} rdx=0x{rdx:X16} rcx=0x{rcx:X16} r8=0x{r8:X16} r9=0x{r9:X16} r12=0x{r12:X16} r13=0x{r13:X16} r14=0x{r14:X16} r15=0x{r15:X16}");
+				$"[LOADER][WARN] guest-bp 0x{rip:X16} hit#{hit + 1}: rax=0x{rax:X16} rdi=0x{rdi:X16} rsi=0x{rsi:X16} rdx=0x{rdx:X16} rcx=0x{rcx:X16} r8=0x{r8:X16} r9=0x{r9:X16} r12=0x{r12:X16} r13=0x{r13:X16} r14=0x{r14:X16} r15=0x{r15:X16}");
 			Console.Error.Flush();
 		}
 
