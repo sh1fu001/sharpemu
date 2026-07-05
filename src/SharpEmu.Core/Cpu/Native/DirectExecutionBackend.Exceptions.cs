@@ -852,9 +852,20 @@ public sealed partial class DirectExecutionBackend
 				instructionText = instruction.Text;
 			}
 
+			// For a `rep movs` fill the writer's rdi/rsi/rcx are the live dest/source/remaining-count,
+			// so an in-range hit tells us whether (and with what size/source) the copy that should fill
+			// the stream buffer ever reaches this slot — the datum that distinguishes a truncated fill
+			// from a stale-pool over-run.
+			var rcxReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0x80);
+			var rdxReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0x88);
+			var rsiReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0xA8);
+			var rdiReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0xB0);
+			var raxReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0x78);
+
 			Console.Error.WriteLine(
 				$"[LOADER][WARN] watch-writes {(inRange ? $"IN-RANGE hit#{eventIndex}" : $"page-step#{stepIndex}")}: " +
-				$"writer=0x{writerRip:X16} '{instructionText}' target=0x{target:X16} qword=0x{value:X16}");
+				$"writer=0x{writerRip:X16} '{instructionText}' target=0x{target:X16} qword=0x{value:X16} " +
+				$"rax=0x{raxReg:X16} rcx=0x{rcxReg:X16} rdx=0x{rdxReg:X16} rsi=0x{rsiReg:X16} rdi=0x{rdiReg:X16}");
 			Console.Error.Flush();
 		}
 
