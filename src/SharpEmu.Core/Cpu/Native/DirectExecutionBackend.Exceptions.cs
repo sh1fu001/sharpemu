@@ -142,6 +142,10 @@ public sealed partial class DirectExecutionBackend
 			{
 				return -1;
 			}
+			if (exceptionCode == 3221225477u && TryRecoverGuestRunawayCopy(exceptionRecord, contextRecord, rip))
+			{
+				return -1;
+			}
 			if (IsBenignHostDebugException(exceptionCode))
 			{
 				return -1;
@@ -647,6 +651,84 @@ public sealed partial class DirectExecutionBackend
 				Console.Error.WriteLine(
 					$"[LOADER][WARN] Guest divide-by-zero at 0x{rip:X16} ({instruction.Text}); " +
 					"emulated as 0 and skipped (SHARPEMU_SKIP_DIV_ZERO).");
+			}
+
+			return true;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private static readonly bool _skipRunawayCopy =
+		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_SKIP_BIG_COPY"), "1", StringComparison.Ordinal);
+
+	// Maximum plausible single memory-copy: anything larger is treated as a corrupted length rather
+	// than a real transfer. GRIS's serializer occasionally reads a (uint)-1 string length from a
+	// derived buffer; the resulting `rep movs` walks off mapped memory. This is a triage aid, not a
+	// correctness fix — it lets boot proceed past the faulting copy to reveal any later walls.
+	private const ulong RunawayCopyThreshold = 0x1000_0000UL; // 256 MiB
+
+	private readonly Dictionary<ulong, int> _skippedRunawayCopySites = new();
+
+	// Aborts a `rep movs`/`rep stos` whose remaining count (RCX) is absurdly large by zeroing RCX and
+	// resuming, so the string instruction retires as a no-op and control falls through. Opt-in via
+	// SHARPEMU_SKIP_BIG_COPY=1; only fires on a fault whose faulting instruction is actually a REP
+	// string op with a count over the runaway threshold, so it never masks a normal bounded copy.
+	private unsafe bool TryRecoverGuestRunawayCopy(EXCEPTION_RECORD* exceptionRecord, void* contextRecord, ulong rip)
+	{
+		if (!_skipRunawayCopy || rip < 0x0000000800000000UL || rip >= 0x0000000810000000UL)
+		{
+			return false;
+		}
+
+		ulong count = ReadCtxU64(contextRecord, CTX_RCX);
+		if (count < RunawayCopyThreshold)
+		{
+			return false;
+		}
+
+		try
+		{
+			// Skip any REP prefixes (F2/F3) and the address-size/REX bytes to find the string opcode.
+			var code = new ReadOnlySpan<byte>((void*)rip, 4);
+			var i = 0;
+			var sawRep = false;
+			while (i < code.Length && (code[i] == 0xF3 || code[i] == 0xF2 || code[i] == 0x67))
+			{
+				sawRep |= code[i] != 0x67;
+				i++;
+			}
+
+			if (i < code.Length && code[i] >= 0x40 && code[i] <= 0x4F) // optional REX
+			{
+				i++;
+			}
+
+			var opcode = i < code.Length ? code[i] : (byte)0;
+			var isStringOp = opcode is 0xA4 or 0xA5 or 0xAA or 0xAB; // movs/stos (b/wd)
+			if (!sawRep || !isStringOp)
+			{
+				return false;
+			}
+
+			WriteCtxU64(contextRecord, CTX_RCX, 0);
+
+			int seen;
+			lock (_skippedRunawayCopySites)
+			{
+				_skippedRunawayCopySites.TryGetValue(rip, out seen);
+				_skippedRunawayCopySites[rip] = seen + 1;
+			}
+
+			if (seen < 4)
+			{
+				ulong faultAddress = exceptionRecord->NumberParameters >= 2 ? exceptionRecord->ExceptionInformation[1] : 0;
+				Console.Error.WriteLine(
+					$"[LOADER][WARN] Runaway rep-string at 0x{rip:X16} count=0x{count:X16} fault=0x{faultAddress:X16}; " +
+					"aborted (RCX=0) via SHARPEMU_SKIP_BIG_COPY.");
+				Console.Error.Flush();
 			}
 
 			return true;

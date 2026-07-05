@@ -2888,7 +2888,7 @@ public static class KernelMemoryCompatExports
         LogIoTrace(
             "read",
             stream.Name,
-            $"fd={fd} req={requested} read={read} pos={positionBefore}->{positionAfter} preview='{PreviewIoBytes(buffer, read, 64)}' hex={PreviewIoHex(buffer, read, 32)} guest_tail={PreviewGuestHex(ctx, bufferAddress + (ulong)Math.Max(read, 0), 32)}");
+            $"fd={fd} req={requested} read={read} pos={positionBefore}->{positionAfter} dst=0x{bufferAddress:X16} preview='{PreviewIoBytes(buffer, read, 64)}' hex={PreviewIoHex(buffer, read, 32)} guest_tail={PreviewGuestHex(ctx, bufferAddress + (ulong)Math.Max(read, 0), 32)}");
 
         ctx[CpuRegister.Rax] = unchecked((ulong)read);
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
@@ -2978,7 +2978,7 @@ public static class KernelMemoryCompatExports
             LogIoTrace(
                 "pread",
                 stream.Name,
-                $"fd={fd} req={requested} read={read} offset={offset} preview='{PreviewIoBytes(buffer, read, 64)}' hex={PreviewIoHex(buffer, read, 32)}");
+                $"fd={fd} req={requested} read={read} offset={offset} dst=0x{bufferAddress:X16} preview='{PreviewIoBytes(buffer, read, 64)}' hex={PreviewIoHex(buffer, read, 32)}");
 
             ctx[CpuRegister.Rax] = unchecked((ulong)read);
             return (int)OrbisGen2Result.ORBIS_GEN2_OK;
