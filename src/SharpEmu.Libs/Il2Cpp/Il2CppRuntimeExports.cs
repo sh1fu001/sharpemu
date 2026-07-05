@@ -378,15 +378,16 @@ public static partial class Il2CppRuntimeExports
     [SysAbiExport(Nid = "__il2cpp_dyn_class_value_size", ExportName = "il2cpp_class_value_size", Target = Generation.Gen4 | Generation.Gen5, LibraryName = "libIl2Cpp")]
     public static int ClassValueSize(CpuContext ctx)
     {
-        // int32_t il2cpp_class_value_size(Il2CppClass* klass, uint32_t* align) - the boxed value's
-        // payload size (instance size minus the Il2CppObject header).
-        const uint objectHeaderSize = 16;
-        var instanceSize = Il2CppRuntime.Instance.GetInstanceSize(unchecked((nint)ctx[CpuRegister.Rdi]));
-        var valueSize = instanceSize > objectHeaderSize ? instanceSize - objectHeaderSize : 0U;
+        // int32_t il2cpp_class_value_size(Il2CppClass* klass, uint32_t* align)
+        var valueSize = Il2CppRuntime.Instance.GetClassValueSize(
+            unchecked((nint)ctx[CpuRegister.Rdi]),
+            out var alignment);
         var alignPtr = ctx[CpuRegister.Rsi];
         if (alignPtr != 0)
         {
-            ctx.TryWriteUInt64(alignPtr, 8);
+            Span<byte> bytes = stackalloc byte[sizeof(uint)];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes, alignment);
+            _ = ctx.Memory.TryWrite(alignPtr, bytes);
         }
 
         ctx[CpuRegister.Rax] = valueSize;

@@ -31,10 +31,14 @@ public sealed class Il2CppMetadata
     private const int TypeDef_GenericContainerIndex = 0x1C;
     private const int TypeDef_FieldStart = 0x24;
     private const int TypeDef_MethodStart = 0x28;
+    private const int TypeDef_PropertyStart = 0x30;
     private const int TypeDef_NestedTypesStart = 0x34;
+    private const int TypeDef_InterfacesStart = 0x38;
     private const int TypeDef_MethodCount = 0x44; // uint16 (v24.4)
+    private const int TypeDef_PropertyCount = 0x46; // uint16
     private const int TypeDef_FieldCount = 0x48; // uint16
     private const int TypeDef_NestedTypeCount = 0x4C; // uint16
+    private const int TypeDef_InterfacesCount = 0x50; // uint16
     private const int TypeDef_Flags = 0x20;
     private const int TypeDef_Token = 0x58;
 
@@ -55,6 +59,20 @@ public sealed class Il2CppMetadata
     private const int FieldDefSize = 0x0C;
     private const int FieldDef_NameIndex = 0x00;
     private const int FieldDef_TypeIndex = 0x04;
+
+    // Il2CppParameterDefinition (v24) is 12 bytes: nameIndex, token, typeIndex.
+    private const int ParameterDefSize = 0x0C;
+    private const int ParameterDef_NameIndex = 0x00;
+    private const int ParameterDef_Token = 0x04;
+    private const int ParameterDef_TypeIndex = 0x08;
+
+    // Il2CppPropertyDefinition (v24) is 20 bytes.
+    private const int PropertyDefSize = 0x14;
+    private const int PropertyDef_NameIndex = 0x00;
+    private const int PropertyDef_GetMethod = 0x04;
+    private const int PropertyDef_SetMethod = 0x08;
+    private const int PropertyDef_Attributes = 0x0C;
+    private const int PropertyDef_Token = 0x10;
 
     // Il2CppStringLiteral (v24) is 8 bytes: { uint32 length; int32 dataIndex; }.
     private const int StringLiteralSize = 0x08;
@@ -79,6 +97,10 @@ public sealed class Il2CppMetadata
     private readonly int _fieldsCount;
     private readonly int _methodsOffset;
     private readonly int _methodsCount;
+    private readonly int _parametersOffset;
+    private readonly int _parametersCount;
+    private readonly int _propertiesOffset;
+    private readonly int _propertiesCount;
     private readonly int _stringLiteralOffset;
     private readonly int _stringLiteralCount;
     private readonly int _stringLiteralDataOffset;
@@ -88,6 +110,8 @@ public sealed class Il2CppMetadata
     private readonly int _fieldRefsCount;
     private readonly int _nestedTypesOffset;
     private readonly int _nestedTypesCount;
+    private readonly int _interfacesOffset;
+    private readonly int _interfacesCount;
     private readonly int _imagesOffset;
     private readonly int _imagesCount;
     private readonly int _attributeRangesOffset;
@@ -114,12 +138,18 @@ public sealed class Il2CppMetadata
         _stringLiteralCount = ReadHeaderInt(1) / StringLiteralSize;
         _stringLiteralDataOffset = ReadHeaderInt(2);  // stringLiteralData blob (pair 1)
         _stringOffset = ReadHeaderInt(4);    // string blob (pair 2)
+        _propertiesOffset = ReadHeaderInt(8); // properties (pair 4)
+        _propertiesCount = ReadHeaderInt(9) / PropertyDefSize;
         _methodsOffset = ReadHeaderInt(10);  // methods (pair 5)
         _methodsCount = ReadHeaderInt(11) / MethodDefSize;
+        _parametersOffset = ReadHeaderInt(20); // parameters (pair 10)
+        _parametersCount = ReadHeaderInt(21) / ParameterDefSize;
         _fieldsOffset = ReadHeaderInt(22);   // fields (pair 11)
         _fieldsCount = ReadHeaderInt(23) / FieldDefSize;
         _nestedTypesOffset = ReadHeaderInt(30); // nestedTypes (pair 15)
         _nestedTypesCount = ReadHeaderInt(31) / sizeof(int);
+        _interfacesOffset = ReadHeaderInt(32); // interfaces (pair 16)
+        _interfacesCount = ReadHeaderInt(33) / sizeof(int);
         _typeDefsOffset = ReadHeaderInt(38); // typeDefinitions (pair 19)
         _typeDefsCount = ReadHeaderInt(39) / TypeDefSize;
         _imagesOffset = ReadHeaderInt(40); // images (pair 20 in metadata v24.5)
@@ -141,6 +171,10 @@ public sealed class Il2CppMetadata
     public int TypeCount => _typeDefsCount;
 
     public int MethodCount => _methodsCount;
+
+    public int ParameterCount => _parametersCount;
+
+    public int PropertyCount => _propertiesCount;
 
     public int FieldCount => _fieldsCount;
 
@@ -405,6 +439,35 @@ public sealed class Il2CppMetadata
         return ReadInt(_nestedTypesOffset + (start + ordinal) * sizeof(int));
     }
 
+    public int GetInterfaceCount(int typeIndex)
+    {
+        if ((uint)typeIndex >= (uint)_typeDefsCount)
+        {
+            return 0;
+        }
+
+        var o = _typeDefsOffset + typeIndex * TypeDefSize + TypeDef_InterfacesCount;
+        return o >= 0 && o + sizeof(ushort) <= _data.Length
+            ? BinaryPrimitives.ReadUInt16LittleEndian(_data.AsSpan(o))
+            : 0;
+    }
+
+    public int GetInterfaceTypeIndex(int typeIndex, int ordinal)
+    {
+        if ((uint)typeIndex >= (uint)_typeDefsCount ||
+            ordinal < 0 ||
+            ordinal >= GetInterfaceCount(typeIndex))
+        {
+            return -1;
+        }
+
+        var start = ReadTypeDefinitionInt(typeIndex, TypeDef_InterfacesStart);
+        var index = (long)start + ordinal;
+        return start >= 0 && index >= 0 && index < _interfacesCount
+            ? ReadInt(_interfacesOffset + (int)index * sizeof(int))
+            : -1;
+    }
+
     /// <summary>Number of instance+static fields declared directly on this type.</summary>
     public int GetFieldCount(int typeIndex)
     {
@@ -501,6 +564,45 @@ public sealed class Il2CppMetadata
     public ushort GetMethodParameterCount(int methodIndex) =>
         ReadMethodUInt16(methodIndex, MethodDef_ParameterCount);
 
+    public string GetMethodParameterName(int methodIndex, int ordinal)
+    {
+        var parameterIndex = GetMethodParameterIndex(methodIndex, ordinal);
+        return parameterIndex < 0
+            ? string.Empty
+            : ReadString(ReadTableInt(
+                _parametersOffset,
+                _parametersCount,
+                ParameterDefSize,
+                parameterIndex,
+                ParameterDef_NameIndex));
+    }
+
+    public int GetMethodParameterTypeIndex(int methodIndex, int ordinal)
+    {
+        var parameterIndex = GetMethodParameterIndex(methodIndex, ordinal);
+        return parameterIndex < 0
+            ? -1
+            : ReadTableInt(
+                _parametersOffset,
+                _parametersCount,
+                ParameterDefSize,
+                parameterIndex,
+                ParameterDef_TypeIndex);
+    }
+
+    public uint GetMethodParameterToken(int methodIndex, int ordinal)
+    {
+        var parameterIndex = GetMethodParameterIndex(methodIndex, ordinal);
+        return parameterIndex < 0
+            ? 0
+            : unchecked((uint)ReadTableInt(
+                _parametersOffset,
+                _parametersCount,
+                ParameterDefSize,
+                parameterIndex,
+                ParameterDef_Token));
+    }
+
     public int FindMethodIndex(int typeIndex, string methodName, int argumentCount)
     {
         var start = GetMethodStart(typeIndex);
@@ -527,6 +629,65 @@ public sealed class Il2CppMetadata
 
         return -1;
     }
+
+    public int GetPropertyStart(int typeIndex)
+    {
+        var start = ReadTypeDefinitionInt(typeIndex, TypeDef_PropertyStart);
+        return start >= 0 && start <= _propertiesCount ? start : -1;
+    }
+
+    public int GetPropertyCount(int typeIndex)
+    {
+        if ((uint)typeIndex >= (uint)_typeDefsCount)
+        {
+            return 0;
+        }
+
+        var o = _typeDefsOffset + typeIndex * TypeDefSize + TypeDef_PropertyCount;
+        return o >= 0 && o + sizeof(ushort) <= _data.Length
+            ? BinaryPrimitives.ReadUInt16LittleEndian(_data.AsSpan(o))
+            : 0;
+    }
+
+    public string GetPropertyName(int propertyIndex) =>
+        ReadString(ReadTableInt(
+            _propertiesOffset,
+            _propertiesCount,
+            PropertyDefSize,
+            propertyIndex,
+            PropertyDef_NameIndex));
+
+    public int GetPropertyGetMethodIndex(int propertyIndex) =>
+        ReadTableInt(
+            _propertiesOffset,
+            _propertiesCount,
+            PropertyDefSize,
+            propertyIndex,
+            PropertyDef_GetMethod);
+
+    public int GetPropertySetMethodIndex(int propertyIndex) =>
+        ReadTableInt(
+            _propertiesOffset,
+            _propertiesCount,
+            PropertyDefSize,
+            propertyIndex,
+            PropertyDef_SetMethod);
+
+    public uint GetPropertyAttributes(int propertyIndex) =>
+        unchecked((uint)ReadTableInt(
+            _propertiesOffset,
+            _propertiesCount,
+            PropertyDefSize,
+            propertyIndex,
+            PropertyDef_Attributes));
+
+    public uint GetPropertyToken(int propertyIndex) =>
+        unchecked((uint)ReadTableInt(
+            _propertiesOffset,
+            _propertiesCount,
+            PropertyDefSize,
+            propertyIndex,
+            PropertyDef_Token));
 
     /// <summary>Global index of the first field declared on this type (-1 if none/invalid).</summary>
     public int GetFieldStart(int typeIndex)
@@ -760,6 +921,36 @@ public sealed class Il2CppMetadata
         }
 
         return ReadInt(_methodsOffset + methodIndex * MethodDefSize + fieldOffset);
+    }
+
+    private int GetMethodParameterIndex(int methodIndex, int ordinal)
+    {
+        if ((uint)methodIndex >= (uint)_methodsCount ||
+            ordinal < 0 ||
+            ordinal >= GetMethodParameterCount(methodIndex))
+        {
+            return -1;
+        }
+
+        var start = GetMethodParameterStart(methodIndex);
+        var index = (long)start + ordinal;
+        return start >= 0 && index >= 0 && index < _parametersCount ? (int)index : -1;
+    }
+
+    private int ReadTableInt(
+        int tableOffset,
+        int tableCount,
+        int entrySize,
+        int index,
+        int fieldOffset)
+    {
+        if ((uint)index >= (uint)tableCount)
+        {
+            return -1;
+        }
+
+        var o = tableOffset + index * entrySize + fieldOffset;
+        return o >= 0 && o + sizeof(int) <= _data.Length ? ReadInt(o) : -1;
     }
 
     private int ReadTypeDefinitionInt(int typeIndex, int fieldOffset)

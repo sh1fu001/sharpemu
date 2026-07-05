@@ -22,7 +22,7 @@ namespace SharpEmu.Libs.Il2Cpp;
 /// the "garbage length" boot crashes). It does not yet provide runtime field offsets or method
 /// pointers, which require parsing the game binary's code-registration tables.
 /// </summary>
-public sealed class Il2CppRuntime
+public sealed partial class Il2CppRuntime
 {
     // Il2CppObject header (64-bit): { Il2CppClass* klass; void* monitor; } = 16 bytes.
     private const int ObjectHeaderSize = 16;
@@ -700,13 +700,28 @@ public sealed class Il2CppRuntime
                 return 0;
             }
 
-            var localIndex = _metadata.FindFieldLocalIndex(typeIndex, fieldName);
-            if (localIndex < 0)
+            var declaringTypeIndex = typeIndex;
+            var localIndex = -1;
+            var remaining = _metadata.TypeCount;
+            while (declaringTypeIndex >= 0 && remaining-- > 0)
+            {
+                localIndex = _metadata.FindFieldLocalIndex(declaringTypeIndex, fieldName);
+                if (localIndex >= 0)
+                {
+                    break;
+                }
+
+                var parentRegistrationIndex = _metadata.GetTypeParentTypeIndex(declaringTypeIndex);
+                declaringTypeIndex =
+                    _codeRegistration.TryGetClassTypeDefinitionIndex(parentRegistrationIndex);
+            }
+
+            if (localIndex < 0 || declaringTypeIndex < 0)
             {
                 return 0;
             }
 
-            var handle = GetOrCreateField(typeIndex, localIndex);
+            var handle = GetOrCreateField(declaringTypeIndex, localIndex);
             if (handle == 0)
             {
                 return 0;
@@ -889,16 +904,7 @@ public sealed class Il2CppRuntime
     {
         lock (_gate)
         {
-            if (_codeRegistration is null || typeHandle == 0)
-            {
-                return 0;
-            }
-
-            var registrationIndex =
-                _codeRegistration.FindTypeRegistrationIndex(unchecked((ulong)typeHandle));
-            var typeDefinitionIndex =
-                _codeRegistration.TryGetClassTypeDefinitionIndex(registrationIndex);
-            return typeDefinitionIndex < 0 ? 0 : GetOrCreateClass(typeDefinitionIndex);
+            return ResolveClassFromTypeLocked(typeHandle);
         }
     }
 
@@ -1250,8 +1256,11 @@ public sealed class Il2CppRuntime
             _classNamePtr[handle] = arrayNamePtr;
             _classNamespacePtr[handle] = arrayNamespacePtr;
             _arrayClassByShape[key] = handle;
-            // Object/reference arrays are the only form currently exposed by the metadata HLE.
-            _arrayElementSizeByClass[handle] = (nuint)IntPtr.Size;
+            _arrayShapeByClass[handle] = (elementClass, rank, bounded);
+            var valueSize = IsClassValueType(elementClass)
+                ? (nuint)GetClassValueSize(elementClass, out _)
+                : (nuint)IntPtr.Size;
+            _arrayElementSizeByClass[handle] = valueSize == 0 ? (nuint)1 : valueSize;
             return handle;
         }
     }
@@ -1440,6 +1449,23 @@ public sealed class Il2CppRuntime
         {
             *(nint*)(block + 0x20) = unchecked((nint)_codeRegistration.GetTypePointer(
                 _metadata.GetMethodReturnTypeIndex(methodIndex)));
+            var parameterCount = _metadata.GetMethodParameterCount(methodIndex);
+            if (parameterCount != 0)
+            {
+                const int parameterInfoSize = 0x18;
+                var parameters = (byte*)AllocateBlock((ulong)parameterCount * parameterInfoSize);
+                for (var i = 0; i < parameterCount; i++)
+                {
+                    var parameter = parameters + i * parameterInfoSize;
+                    *(nint*)parameter = AllocateCString(_metadata.GetMethodParameterName(methodIndex, i));
+                    *(int*)(parameter + 0x08) = i;
+                    *(uint*)(parameter + 0x0C) = _metadata.GetMethodParameterToken(methodIndex, i);
+                    *(nint*)(parameter + 0x10) = unchecked((nint)_codeRegistration.GetTypePointer(
+                        _metadata.GetMethodParameterTypeIndex(methodIndex, i)));
+                }
+
+                *(nint*)(block + 0x28) = (nint)parameters;
+            }
         }
         *(uint*)(block + MethodInfo_Token) = _metadata.GetMethodToken(methodIndex);
         *(ushort*)(block + MethodInfo_Flags) = _metadata.GetMethodFlags(methodIndex);
@@ -1569,6 +1595,9 @@ public sealed class Il2CppRuntime
 
     private unsafe nint AllocateClassBlock(int typeIndex)
     {
+        // Il2CppClass is also dereferenced from native helper paths that do not route through
+        // ICpuMemory. Keep class identities in stable host memory; all child strings/tables remain
+        // in the guest heap and class handles are still directly readable under native execution.
         var block = (byte*)NativeMemory.AllocZeroed(ClassBlockSize);
         if (_metadata is not null)
         {

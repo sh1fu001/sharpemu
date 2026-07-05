@@ -83,6 +83,7 @@ public sealed class Il2CppCodeRegistrationTests
         W32(typeDefSizesOff + 0 * 0x10, 0x10);
         W32(typeDefSizesOff + 1 * 0x10, 0x14);
         W32(typeDefSizesOff + 2 * 0x10, 0x30);
+        W32(typeDefSizesOff + 2 * 0x10 + 8, 0x18);
 
         const int type2FieldOffsetsOff = 0x0300;
         W32(type2FieldOffsetsOff + 0, 0x10); // field 0 at offset 0x10
@@ -180,7 +181,7 @@ public sealed class Il2CppCodeRegistrationTests
         WriteType(1, strName, systemNs, -1, 0);
         WriteType(2, gmName, emptyNs, 0, 2);
 
-        const int headerPairs = 20;
+        const int headerPairs = 28;
         var headerSize = 8 + headerPairs * 8;
         var stringOff = headerSize;
         var fieldsOff = stringOff + stringBlob.Count;
@@ -220,6 +221,7 @@ public sealed class Il2CppCodeRegistrationTests
         Assert.Equal(0x10u, codeReg.GetInstanceSize(0));
         Assert.Equal(0x14u, codeReg.GetInstanceSize(1));
         Assert.Equal(0x30u, codeReg.GetInstanceSize(2));
+        Assert.Equal(0x18u, codeReg.GetStaticFieldsSize(2));
 
         // Field offsets for GameManager come from its per-type pointer array.
         var health = metadata.FindFieldLocalIndex(2, "health");

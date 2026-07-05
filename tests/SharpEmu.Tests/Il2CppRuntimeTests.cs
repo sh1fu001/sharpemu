@@ -38,4 +38,16 @@ public sealed class Il2CppRuntimeTests
         Assert.Equal((nuint)nint.Size, runtime.GetArrayElementSize(arrayClass));
         Assert.Equal(0UL, runtime.GetArrayLength((nint)1));
     }
+
+    [Fact]
+    public void StringIntern_ReturnsCanonicalObject()
+    {
+        var runtime = Il2CppRuntime.Instance;
+        var first = runtime.NewString("gris");
+        var second = runtime.NewString("gris");
+
+        Assert.Equal(first, runtime.InternString(first));
+        Assert.Equal(first, runtime.InternString(second));
+        Assert.Equal(first, runtime.FindInternedString(second));
+    }
 }

@@ -253,6 +253,20 @@ public sealed class Il2CppCodeRegistration
             : 0;
     }
 
+    public uint GetTypeBitfield(int typeIndex)
+    {
+        var typePointer = GetTypePointer(typeIndex);
+        return typePointer != 0 && TryReadU32(_reader, typePointer + 8, out var bitfield)
+            ? bitfield
+            : 0;
+    }
+
+    public ulong GetTypeData(int typeIndex)
+    {
+        var typePointer = GetTypePointer(typeIndex);
+        return typePointer != 0 && TryReadU64(_reader, typePointer, out var data) ? data : 0;
+    }
+
     /// <summary>
     /// For a types[] index that denotes a plain class/value type, returns its type-definition index
     /// (so the caller can resolve an Il2CppClass); -1 for other type kinds or on any read failure.
@@ -304,7 +318,19 @@ public sealed class Il2CppCodeRegistration
     }
 
     /// <summary>Instance size (bytes) for a type, or 0 if unavailable.</summary>
-    public uint GetInstanceSize(int typeIndex)
+    public uint GetInstanceSize(int typeIndex) =>
+        GetTypeDefinitionSize(typeIndex, 0);
+
+    public uint GetNativeSize(int typeIndex) =>
+        GetTypeDefinitionSize(typeIndex, 4);
+
+    public uint GetStaticFieldsSize(int typeIndex) =>
+        GetTypeDefinitionSize(typeIndex, 8);
+
+    public uint GetThreadStaticFieldsSize(int typeIndex) =>
+        GetTypeDefinitionSize(typeIndex, 12);
+
+    private uint GetTypeDefinitionSize(int typeIndex, int fieldOffset)
     {
         if ((uint)typeIndex >= (uint)_typeCount)
         {
@@ -314,7 +340,7 @@ public sealed class Il2CppCodeRegistration
         if (_typeDefSizesArePointers)
         {
             if (!TryReadU64(_reader, _typeDefSizesPtr + (ulong)typeIndex * 8, out var entry) ||
-                !TryReadU32(_reader, entry, out var size))
+                !TryReadU32(_reader, entry + (ulong)fieldOffset, out var size))
             {
                 return 0;
             }
@@ -322,7 +348,12 @@ public sealed class Il2CppCodeRegistration
             return size;
         }
 
-        return TryReadU32(_reader, _typeDefSizesPtr + (ulong)typeIndex * TypeDefSizesEntrySize, out var s) ? s : 0;
+        return TryReadU32(
+            _reader,
+            _typeDefSizesPtr + (ulong)typeIndex * TypeDefSizesEntrySize + (ulong)fieldOffset,
+            out var s)
+            ? s
+            : 0;
     }
 
     /// <summary>Runtime byte offset of a field given its owning type and local ordinal, or -1.</summary>
