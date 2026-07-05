@@ -658,8 +658,12 @@ public sealed partial class DirectExecutionBackend
 			var rcx = ReadCtxU64(contextRecord, CTX_RCX);
 			var r8 = ReadCtxU64(contextRecord, 184);
 			var r9 = ReadCtxU64(contextRecord, 192);
+			var r12 = ReadCtxU64(contextRecord, 216);
+			var r13 = ReadCtxU64(contextRecord, 224);
+			var r14 = ReadCtxU64(contextRecord, 232);
+			var r15 = ReadCtxU64(contextRecord, 240);
 			Console.Error.WriteLine(
-				$"[LOADER][WARN] guest-bp 0x{rip:X16} hit#{hit + 1}: rdi=0x{rdi:X16} rsi=0x{rsi:X16} rdx=0x{rdx:X16} rcx=0x{rcx:X16} r8=0x{r8:X16} r9=0x{r9:X16}");
+				$"[LOADER][WARN] guest-bp 0x{rip:X16} hit#{hit + 1}: rdi=0x{rdi:X16} rsi=0x{rsi:X16} rdx=0x{rdx:X16} rcx=0x{rcx:X16} r8=0x{r8:X16} r9=0x{r9:X16} r12=0x{r12:X16} r13=0x{r13:X16} r14=0x{r14:X16} r15=0x{r15:X16}");
 			Console.Error.Flush();
 		}
 
