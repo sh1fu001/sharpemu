@@ -35,6 +35,7 @@ public sealed partial class DirectExecutionBackend
 		}
 
 		StartWatchWritesArmingThread();
+		StartGuestBreakpointArmingThread();
 
 		if (!string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_RAW_HANDLER"), "1", StringComparison.Ordinal))
 		{
@@ -119,8 +120,17 @@ public sealed partial class DirectExecutionBackend
 			ulong rip = ReadCtxU64(contextRecord, 248);
 			ulong rsp = ReadCtxU64(contextRecord, 152);
 
-			// Write-watchpoint hooks must run first: the watched page is committed-but-readonly,
-			// which the lazy-commit paths would otherwise misclassify or ignore.
+			// Guest breakpoints and the write-watchpoint hooks must run first. Both use a single-step
+			// (TF) trap to advance one instruction; the breakpoint re-patch is checked before the
+			// watchpoint completion because they share the 0x80000004 single-step exception.
+			if (exceptionCode == 0x80000003u && TryHandleGuestBreakpoint(contextRecord, rip))
+			{
+				return -1;
+			}
+			if (exceptionCode == 0x80000004u && TryCompleteGuestBreakpointStep(contextRecord))
+			{
+				return -1;
+			}
 			if (exceptionCode == 3221225477u && TryHandleWatchedWriteFault(exceptionRecord, contextRecord, rip))
 			{
 				return -1;
@@ -475,6 +485,225 @@ public sealed partial class DirectExecutionBackend
 		}
 
 		return (address, length);
+	}
+
+	// ---- Guest breakpoints (SHARPEMU_GUEST_BREAKPOINTS=<hexaddr>[,<hexaddr>...]) -----------------
+	// Patches int3 (0xCC) over the first byte of each listed guest code address. On hit, logs the
+	// integer-argument registers (System V order: rdi, rsi, rdx, rcx, r8, r9 + rax) and the call
+	// depth, restores the byte, single-steps over the original instruction, then re-patches. This is
+	// the general "instrument any internal game function" tool the serialization trace needs.
+	private static readonly ulong[] _guestBreakpoints = ParseGuestBreakpoints();
+	// SHARPEMU_GUEST_BP_MATCH="<reg>,<hexlo>,<hexhi>" restricts logging to hits where the named
+	// integer register is in [lo,hi] — the only way to catch the one faulting call to an otherwise
+	// hot function (e.g. the string reader whose cursor lands in the crash region).
+	private static readonly (int CtxOffset, ulong Lo, ulong Hi) _guestBreakpointMatch = ParseGuestBreakpointMatch();
+	private const int GuestBreakpointMaxHitsLogged = 200;
+	private static readonly Dictionary<ulong, byte> _guestBreakpointOriginal = new();
+	private static readonly Dictionary<ulong, int> _guestBreakpointHits = new();
+	private static int _guestBreakpointsArmed;
+	private static readonly object _guestBreakpointGate = new();
+
+	[ThreadStatic] private static ulong _guestBreakpointStepAddress;
+
+	private static ulong[] ParseGuestBreakpoints()
+	{
+		var raw = Environment.GetEnvironmentVariable("SHARPEMU_GUEST_BREAKPOINTS");
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			return Array.Empty<ulong>();
+		}
+
+		var result = new List<ulong>();
+		foreach (var token in raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+		{
+			var text = token.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? token[2..] : token;
+			if (ulong.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var address) && address > 0x10000)
+			{
+				result.Add(address);
+			}
+		}
+
+		return result.ToArray();
+	}
+
+	private static (int CtxOffset, ulong Lo, ulong Hi) ParseGuestBreakpointMatch()
+	{
+		var raw = Environment.GetEnvironmentVariable("SHARPEMU_GUEST_BP_MATCH");
+		if (string.IsNullOrWhiteSpace(raw))
+		{
+			return (-1, 0, 0);
+		}
+
+		var parts = raw.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+		if (parts.Length != 3)
+		{
+			return (-1, 0, 0);
+		}
+
+		var offset = parts[0].ToLowerInvariant() switch
+		{
+			"rax" => CTX_RAX,
+			"rcx" => CTX_RCX,
+			"rdx" => 136,
+			"rbx" => 144,
+			"rsi" => CTX_RSI,
+			"rdi" => CTX_RDI,
+			"r8" => 184,
+			"r9" => 192,
+			"r12" => 216,
+			"r13" => 224,
+			"r14" => 232,
+			"r15" => 240,
+			_ => -1,
+		};
+
+		static ulong Hex(string s) => ulong.TryParse(
+			s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s[2..] : s,
+			NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var v) ? v : 0;
+
+		return offset < 0 ? (-1, 0, 0) : (offset, Hex(parts[1]), Hex(parts[2]));
+	}
+
+	private static void StartGuestBreakpointArmingThread()
+	{
+		if (_guestBreakpoints.Length == 0)
+		{
+			return;
+		}
+
+		Console.Error.WriteLine($"[LOADER][INFO] guest breakpoints requested: {string.Join(", ", Array.ConvertAll(_guestBreakpoints, a => $"0x{a:X}"))}; arming once code is mapped.");
+		var thread = new Thread(static () =>
+		{
+			while (Volatile.Read(ref _guestBreakpointsArmed) < _guestBreakpoints.Length)
+			{
+				TryArmGuestBreakpoints();
+				Thread.Sleep(25);
+			}
+		})
+		{
+			IsBackground = true,
+			Name = "sharpemu-guest-breakpoints",
+		};
+		thread.Start();
+	}
+
+	private static unsafe void TryArmGuestBreakpoints()
+	{
+		lock (_guestBreakpointGate)
+		{
+			foreach (var address in _guestBreakpoints)
+			{
+				if (_guestBreakpointOriginal.ContainsKey(address))
+				{
+					continue;
+				}
+
+				if (VirtualQuery((void*)address, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+					mbi.State != MEM_COMMIT ||
+					!IsExecutableProtection(mbi.Protect))
+				{
+					continue;
+				}
+
+				uint oldProtect;
+				if (!VirtualProtect((void*)address, 1, 0x40u /* RWX */, &oldProtect))
+				{
+					continue;
+				}
+
+				_guestBreakpointOriginal[address] = *(byte*)address;
+				*(byte*)address = 0xCC;
+				uint restore;
+				VirtualProtect((void*)address, 1, oldProtect, &restore);
+				Interlocked.Increment(ref _guestBreakpointsArmed);
+				Console.Error.WriteLine($"[LOADER][WARN] guest breakpoint ARMED at 0x{address:X16}.");
+				Console.Error.Flush();
+			}
+		}
+	}
+
+	private unsafe bool TryHandleGuestBreakpoint(void* contextRecord, ulong rip)
+	{
+		byte original;
+		lock (_guestBreakpointGate)
+		{
+			if (!_guestBreakpointOriginal.TryGetValue(rip, out original))
+			{
+				return false;
+			}
+		}
+
+		var matches = true;
+		if (_guestBreakpointMatch.CtxOffset >= 0)
+		{
+			var value = ReadCtxU64(contextRecord, _guestBreakpointMatch.CtxOffset);
+			matches = value >= _guestBreakpointMatch.Lo && value <= _guestBreakpointMatch.Hi;
+		}
+
+		var hit = 0;
+		if (matches)
+		{
+			lock (_guestBreakpointGate)
+			{
+				_guestBreakpointHits.TryGetValue(rip, out hit);
+				_guestBreakpointHits[rip] = hit + 1;
+			}
+		}
+
+		if (matches && hit < GuestBreakpointMaxHitsLogged)
+		{
+			var rdi = ReadCtxU64(contextRecord, CTX_RDI);
+			var rsi = ReadCtxU64(contextRecord, CTX_RSI);
+			var rdx = ReadCtxU64(contextRecord, 136);
+			var rcx = ReadCtxU64(contextRecord, CTX_RCX);
+			var r8 = ReadCtxU64(contextRecord, 184);
+			var r9 = ReadCtxU64(contextRecord, 192);
+			Console.Error.WriteLine(
+				$"[LOADER][WARN] guest-bp 0x{rip:X16} hit#{hit + 1}: rdi=0x{rdi:X16} rsi=0x{rsi:X16} rdx=0x{rdx:X16} rcx=0x{rcx:X16} r8=0x{r8:X16} r9=0x{r9:X16}");
+			Console.Error.Flush();
+		}
+
+		// Restore the original byte, single-step over it, then re-patch (in the step handler).
+		uint oldProtect;
+		if (VirtualProtect((void*)rip, 1, 0x40u, &oldProtect))
+		{
+			*(byte*)rip = original;
+			uint restore;
+			VirtualProtect((void*)rip, 1, oldProtect, &restore);
+		}
+
+		_guestBreakpointStepAddress = rip;
+		var eflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
+		Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(eflags | EFlagsTrapFlag));
+		return true;
+	}
+
+	private unsafe bool TryCompleteGuestBreakpointStep(void* contextRecord)
+	{
+		var address = _guestBreakpointStepAddress;
+		if (address == 0)
+		{
+			return false;
+		}
+
+		_guestBreakpointStepAddress = 0;
+		lock (_guestBreakpointGate)
+		{
+			if (_guestBreakpointOriginal.ContainsKey(address))
+			{
+				uint oldProtect;
+				if (VirtualProtect((void*)address, 1, 0x40u, &oldProtect))
+				{
+					*(byte*)address = 0xCC;
+					uint restore;
+					VirtualProtect((void*)address, 1, oldProtect, &restore);
+				}
+			}
+		}
+
+		var eflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
+		Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(eflags & ~EFlagsTrapFlag));
+		return true;
 	}
 
 	private static void StartWatchWritesArmingThread()
