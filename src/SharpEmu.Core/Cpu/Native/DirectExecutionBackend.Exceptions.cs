@@ -419,8 +419,8 @@ public sealed partial class DirectExecutionBackend
 	// re-protected. An event cap disarms the watch so a bulk copy sweeping through the page (e.g.
 	// a runaway memcpy) cannot stall the run.
 
-	private const int WatchWritesMaxEvents = 48;
-	private const int WatchWritesMaxSteps = 200_000;
+	private const int WatchWritesMaxEvents = 256;
+	private const int WatchWritesMaxSteps = 4_000_000;
 	private static int _watchWritesSteps;
 	private const uint WatchPageReadOnly = 0x02;
 	private const uint WatchPageReadWrite = 0x04;
@@ -428,12 +428,21 @@ public sealed partial class DirectExecutionBackend
 	private const uint EFlagsTrapFlag = 0x100;
 
 	private static readonly (ulong Address, ulong Length) _watchWrites = ParseWatchWrites();
+	// SHARPEMU_WATCH_FF=1: only log/count in-range writes whose stored qword carries 0xFFFFFFFF in
+	// either 32-bit half. Lets a whole-page watch pinpoint the writer of a (uint)-1 sentinel without
+	// drowning in the page's ordinary traffic.
+	private static readonly bool _watchWritesOnlyFF =
+		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_WATCH_FF"), "1", StringComparison.Ordinal);
 	private static int _watchWritesArmed; // 0 = waiting for the page, 1 = armed, 2 = disarmed
 	private static int _watchWritesEvents;
 
 	[ThreadStatic] private static bool _watchWritesStepPending;
 	[ThreadStatic] private static ulong _watchWritesStepTarget;
 	[ThreadStatic] private static ulong _watchWritesStepRip;
+	[ThreadStatic] private static ulong _watchWritesStepPage;
+
+	private static ulong WatchWritesFirstPage => _watchWrites.Address & ~0xFFFUL;
+	private static ulong WatchWritesLastPage => (_watchWrites.Address + _watchWrites.Length - 1) & ~0xFFFUL;
 
 	private static (ulong Address, ulong Length) ParseWatchWrites()
 	{
@@ -468,8 +477,6 @@ public sealed partial class DirectExecutionBackend
 		return (address, length);
 	}
 
-	private static ulong WatchWritesPage => _watchWrites.Address & ~0xFFFUL;
-
 	private static void StartWatchWritesArmingThread()
 	{
 		if (_watchWrites.Address == 0)
@@ -496,22 +503,42 @@ public sealed partial class DirectExecutionBackend
 
 	private static unsafe void TryArmWatchWrites()
 	{
-		var page = WatchWritesPage;
-		if (VirtualQuery((void*)page, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+		// The first page must be committed before we protect anything; later pages of a multi-page
+		// range are protected best-effort (a range can straddle a not-yet-committed tail).
+		var firstPage = WatchWritesFirstPage;
+		if (VirtualQuery((void*)firstPage, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
 			mbi.State != MEM_COMMIT ||
 			(mbi.Protect & (0x04u | 0x08u | 0x40u | 0x80u)) == 0)
 		{
 			return;
 		}
 
-		uint oldProtect;
-		if (VirtualProtect((void*)page, 0x1000, WatchPageReadOnly, &oldProtect))
+		var protectedPages = 0;
+		for (var page = firstPage; page <= WatchWritesLastPage; page += 0x1000)
+		{
+			if (VirtualQuery((void*)page, out var pageInfo, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) != 0 &&
+				pageInfo.State == MEM_COMMIT &&
+				(pageInfo.Protect & (0x04u | 0x08u | 0x40u | 0x80u)) != 0)
+			{
+				uint oldProtect;
+				if (VirtualProtect((void*)page, 0x1000, WatchPageReadOnly, &oldProtect))
+				{
+					protectedPages++;
+				}
+			}
+		}
+
+		if (protectedPages > 0)
 		{
 			Volatile.Write(ref _watchWritesArmed, 1);
-			Console.Error.WriteLine($"[LOADER][WARN] watch-writes ARMED on page 0x{page:X16}.");
+			Console.Error.WriteLine(
+				$"[LOADER][WARN] watch-writes ARMED on {protectedPages} page(s) 0x{firstPage:X16}..0x{WatchWritesLastPage:X16}" +
+				(_watchWritesOnlyFF ? " (0xFFFFFFFF filter)." : "."));
 			Console.Error.Flush();
 		}
 	}
+
+	private static bool IsWatchedPage(ulong page) => page >= WatchWritesFirstPage && page <= WatchWritesLastPage;
 
 	private unsafe bool TryHandleWatchedWriteFault(EXCEPTION_RECORD* exceptionRecord, void* contextRecord, ulong rip)
 	{
@@ -522,16 +549,18 @@ public sealed partial class DirectExecutionBackend
 
 		ulong accessType = *exceptionRecord->ExceptionInformation;
 		ulong target = exceptionRecord->ExceptionInformation[1];
-		if (accessType != 1 || (target & ~0xFFFUL) != WatchWritesPage)
+		var page = target & ~0xFFFUL;
+		if (accessType != 1 || !IsWatchedPage(page))
 		{
 			return false;
 		}
 
 		uint oldProtect;
-		VirtualProtect((void*)WatchWritesPage, 0x1000, WatchPageReadWrite, &oldProtect);
+		VirtualProtect((void*)page, 0x1000, WatchPageReadWrite, &oldProtect);
 		_watchWritesStepPending = true;
 		_watchWritesStepTarget = target;
 		_watchWritesStepRip = rip;
+		_watchWritesStepPage = page;
 		var eflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
 		Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(eflags | EFlagsTrapFlag));
 		return true;
@@ -547,16 +576,32 @@ public sealed partial class DirectExecutionBackend
 		_watchWritesStepPending = false;
 		var target = _watchWritesStepTarget;
 		var writerRip = _watchWritesStepRip;
+		var faultedPage = _watchWritesStepPage;
 		var inRange = target >= _watchWrites.Address && target < _watchWrites.Address + _watchWrites.Length;
-		// Only in-range writes count against the cap: the page carries heavy unrelated traffic
-		// (every neighbouring record) and would exhaust the budget before the watched slot is hit.
-		var eventIndex = inRange ? Interlocked.Increment(ref _watchWritesEvents) : 0;
+
+		ulong value = 0;
+		try
+		{
+			value = (ulong)Marshal.ReadInt64((nint)(target & ~7UL));
+		}
+		catch
+		{
+		}
+
+		// With the 0xFFFFFFFF filter, only a stored qword carrying an all-ones 32-bit half is of
+		// interest (the (uint)-1 sentinel we are hunting); everything else is ignored so the whole
+		// page can be watched without the event cap being consumed by ordinary traffic.
+		var interesting = !_watchWritesOnlyFF ||
+			(value & 0xFFFFFFFFUL) == 0xFFFFFFFFUL ||
+			(value >> 32) == 0xFFFFFFFFUL;
+		var counts = inRange && interesting;
+		var eventIndex = counts ? Interlocked.Increment(ref _watchWritesEvents) : 0;
 		var stepIndex = Interlocked.Increment(ref _watchWritesSteps);
 		if (stepIndex >= WatchWritesMaxSteps)
 		{
 			if (Interlocked.Exchange(ref _watchWritesArmed, 2) == 1)
 			{
-				Console.Error.WriteLine($"[LOADER][WARN] watch-writes disarmed (step cap {WatchWritesMaxSteps} reached); page left writable.");
+				Console.Error.WriteLine($"[LOADER][WARN] watch-writes disarmed (step cap {WatchWritesMaxSteps} reached); pages left writable.");
 				Console.Error.Flush();
 			}
 
@@ -565,17 +610,8 @@ public sealed partial class DirectExecutionBackend
 			return true;
 		}
 
-		if (inRange || stepIndex <= 6)
+		if (counts || (!_watchWritesOnlyFF && !inRange && stepIndex <= 6))
 		{
-			ulong value = 0;
-			try
-			{
-				value = (ulong)Marshal.ReadInt64((nint)(target & ~7UL));
-			}
-			catch
-			{
-			}
-
 			var instructionText = "?";
 			if (TryReadHostBytes(writerRip, 15, out var codeBytes) &&
 				IcedDecoder.TryDecode(writerRip, codeBytes, out var instruction))
@@ -596,7 +632,7 @@ public sealed partial class DirectExecutionBackend
 		{
 			if (Interlocked.Exchange(ref _watchWritesArmed, 2) == 1)
 			{
-				Console.Error.WriteLine("[LOADER][WARN] watch-writes disarmed (event cap reached); page left writable.");
+				Console.Error.WriteLine("[LOADER][WARN] watch-writes disarmed (event cap reached); pages left writable.");
 				Console.Error.Flush();
 			}
 
@@ -604,7 +640,7 @@ public sealed partial class DirectExecutionBackend
 		}
 
 		uint reArmProtect;
-		VirtualProtect((void*)WatchWritesPage, 0x1000, WatchPageReadOnly, &reArmProtect);
+		VirtualProtect((void*)faultedPage, 0x1000, WatchPageReadOnly, &reArmProtect);
 		return true;
 	}
 
