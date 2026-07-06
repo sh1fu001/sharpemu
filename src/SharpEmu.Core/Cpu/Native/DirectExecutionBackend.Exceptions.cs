@@ -123,6 +123,10 @@ public sealed partial class DirectExecutionBackend
 			// Guest breakpoints and the write-watchpoint hooks must run first. Both use a single-step
 			// (TF) trap to advance one instruction; the breakpoint re-patch is checked before the
 			// watchpoint completion because they share the 0x80000004 single-step exception.
+			if (exceptionCode == 0x80000003u && TryCompleteWatchedWriteStepInt3(rip))
+			{
+				return -1;
+			}
 			if (exceptionCode == 0x80000003u && TryHandleGuestBreakpoint(contextRecord, rip))
 			{
 				return -1;
@@ -450,6 +454,26 @@ public sealed partial class DirectExecutionBackend
 	[ThreadStatic] private static ulong _watchWritesStepTarget;
 	[ThreadStatic] private static ulong _watchWritesStepRip;
 	[ThreadStatic] private static ulong _watchWritesStepPage;
+	// Registers captured at fault time (BEFORE the store completes). For a `rep movs` fill these hold
+	// the live dest/source/count, which the old post-write logging (rcx already decremented to 0 after
+	// an int3-at-next step) would have lost.
+	[ThreadStatic] private static ulong _watchStepPreRax;
+	[ThreadStatic] private static ulong _watchStepPreRcx;
+	[ThreadStatic] private static ulong _watchStepPreRdx;
+	[ThreadStatic] private static ulong _watchStepPreRsi;
+	[ThreadStatic] private static ulong _watchStepPreRdi;
+	[ThreadStatic] private static string? _watchStepInstrText;
+	// One-shot int3 planted at the instruction AFTER the store, used to advance execution without the
+	// EFlags trap flag (TF). TF single-stepping a store that is followed by — or whose intrinsic thunk
+	// sits at — an HLE import trampoline entry makes the resulting #DB land inside a managed
+	// UnmanagedCallersOnly method, which trips .NET's "Invalid Program" guard and kills the process.
+	// Only one watched store is ever stepped at a time (the page is left writable during the step, so
+	// concurrent writers do not fault), so a single global slot is sufficient and cross-thread safe.
+	private static ulong _watchStepInt3Addr;
+	private static byte _watchStepInt3Orig;
+	// The guest main module the write watchpoint patches int3 into; host/JIT code is stepped with TF.
+	private const ulong GuestCodeLow = 0x0000000800000000UL;
+	private const ulong GuestCodeHigh = 0x0000000810000000UL;
 
 	private static ulong WatchWritesFirstPage => _watchWrites.Address & ~0xFFFUL;
 	private static ulong WatchWritesLastPage => (_watchWrites.Address + _watchWrites.Length - 1) & ~0xFFFUL;
@@ -815,24 +839,122 @@ public sealed partial class DirectExecutionBackend
 			return false;
 		}
 
+		// Capture the writer's registers and disassembly now, while they still reflect the state BEFORE
+		// the store executes — this is what a `rep movs` fill's source/dest/count live in.
+		_watchStepPreRax = ReadCtxU64(contextRecord, CTX_RAX);
+		_watchStepPreRcx = ReadCtxU64(contextRecord, CTX_RCX);
+		_watchStepPreRdx = ReadCtxU64(contextRecord, 136);
+		_watchStepPreRsi = ReadCtxU64(contextRecord, CTX_RSI);
+		_watchStepPreRdi = ReadCtxU64(contextRecord, CTX_RDI);
+		_watchStepInstrText = null;
+
 		uint oldProtect;
 		VirtualProtect((void*)page, 0x1000, WatchPageReadWrite, &oldProtect);
 		_watchWritesStepPending = true;
 		_watchWritesStepTarget = target;
 		_watchWritesStepRip = rip;
 		_watchWritesStepPage = page;
-		var eflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
-		Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(eflags | EFlagsTrapFlag));
+
+		// Prefer int3-at-next-instruction over the trap flag so the step never single-steps into a
+		// trampoline. Only guest stores can be advanced this way (the next byte must be ours to borrow);
+		// host memcpy thunks fall back to TF.
+		if (!TryArmWatchStepInt3(rip))
+		{
+			var eflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
+			Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(eflags | EFlagsTrapFlag));
+		}
+
 		return true;
 	}
 
-	private unsafe bool TryCompleteWatchedWriteStep(void* contextRecord)
+	// Plants a one-shot int3 at the instruction following a guest store so execution resumes there with
+	// no trap flag set. Returns false (caller uses TF) when the writer is not guest code, cannot be
+	// decoded, or the next instruction is not in committed executable memory.
+	private static unsafe bool TryArmWatchStepInt3(ulong rip)
 	{
-		if (!_watchWritesStepPending)
+		if (rip < GuestCodeLow || rip >= GuestCodeHigh)
 		{
 			return false;
 		}
 
+		if (!TryReadHostBytes(rip, 15, out var codeBytes) ||
+			!IcedDecoder.TryDecode(rip, codeBytes, out var instruction) ||
+			instruction.Length <= 0)
+		{
+			return false;
+		}
+
+		_watchStepInstrText = instruction.Text;
+		var nextRip = rip + (ulong)instruction.Length;
+		if (VirtualQuery((void*)nextRip, out var mbi, (nuint)sizeof(MEMORY_BASIC_INFORMATION64)) == 0 ||
+			mbi.State != MEM_COMMIT ||
+			!IsExecutableProtection(mbi.Protect))
+		{
+			return false;
+		}
+
+		uint oldProtect;
+		if (!VirtualProtect((void*)nextRip, 1, 0x40u /* RWX */, &oldProtect))
+		{
+			return false;
+		}
+
+		_watchStepInt3Orig = *(byte*)nextRip;
+		*(byte*)nextRip = 0xCC;
+		uint restore;
+		VirtualProtect((void*)nextRip, 1, oldProtect, &restore);
+		Volatile.Write(ref _watchStepInt3Addr, nextRip);
+		return true;
+	}
+
+	// Trap-flag completion (host/JIT writers that could not use int3-at-next). Fires on the single-step
+	// #DB; skipped when an int3 step is in flight (that path never sets TF).
+	private unsafe bool TryCompleteWatchedWriteStep(void* contextRecord)
+	{
+		if (!_watchWritesStepPending || Volatile.Read(ref _watchStepInt3Addr) != 0)
+		{
+			return false;
+		}
+
+		var eflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
+		Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(eflags & ~EFlagsTrapFlag));
+		return CompleteWatchedWrite();
+	}
+
+	// int3-at-next completion: the store has fully executed and control reached the borrowed byte.
+	// Restore it, then finish exactly as the TF path would.
+	private unsafe bool TryCompleteWatchedWriteStepInt3(ulong rip)
+	{
+		var int3Addr = Volatile.Read(ref _watchStepInt3Addr);
+		if (int3Addr == 0 || rip != int3Addr)
+		{
+			return false;
+		}
+
+		uint oldProtect;
+		if (VirtualProtect((void*)int3Addr, 1, 0x40u /* RWX */, &oldProtect))
+		{
+			*(byte*)int3Addr = _watchStepInt3Orig;
+			uint restore;
+			VirtualProtect((void*)int3Addr, 1, oldProtect, &restore);
+		}
+
+		Volatile.Write(ref _watchStepInt3Addr, 0);
+
+		// A different thread could execute the borrowed byte during the tiny step window; if so there is
+		// no pending step on it, so just leave the byte restored and continue.
+		if (!_watchWritesStepPending)
+		{
+			return true;
+		}
+
+		return CompleteWatchedWrite();
+	}
+
+	// Shared bookkeeping for both completion paths: reads the stored qword, applies the range/0xFFFFFFFF
+	// filters, logs the writer with the registers captured BEFORE the store, and re-arms the page.
+	private unsafe bool CompleteWatchedWrite()
+	{
 		_watchWritesStepPending = false;
 		var target = _watchWritesStepTarget;
 		var writerRip = _watchWritesStepRip;
@@ -865,39 +987,29 @@ public sealed partial class DirectExecutionBackend
 				Console.Error.Flush();
 			}
 
-			var restoreEflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
-			Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(restoreEflags & ~EFlagsTrapFlag));
 			return true;
 		}
 
 		if (counts || (!_watchWritesOnlyFF && !inRange && stepIndex <= 6))
 		{
-			var instructionText = "?";
-			if (TryReadHostBytes(writerRip, 15, out var codeBytes) &&
-				IcedDecoder.TryDecode(writerRip, codeBytes, out var instruction))
+			var instructionText = _watchStepInstrText;
+			if (string.IsNullOrEmpty(instructionText))
 			{
-				instructionText = instruction.Text;
+				instructionText = TryReadHostBytes(writerRip, 15, out var codeBytes) &&
+					IcedDecoder.TryDecode(writerRip, codeBytes, out var instruction)
+					? instruction.Text
+					: "?";
 			}
 
-			// For a `rep movs` fill the writer's rdi/rsi/rcx are the live dest/source/remaining-count,
-			// so an in-range hit tells us whether (and with what size/source) the copy that should fill
-			// the stream buffer ever reaches this slot — the datum that distinguishes a truncated fill
-			// from a stale-pool over-run.
-			var rcxReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0x80);
-			var rdxReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0x88);
-			var rsiReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0xA8);
-			var rdiReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0xB0);
-			var raxReg = (ulong)Marshal.ReadInt64((nint)contextRecord + 0x78);
-
+			// The registers were captured at fault time, so for a `rep movs` fill rdi/rsi/rcx are the
+			// live dest/source/count — the datum that tells whether (and with what size) the copy that
+			// should fill the stream buffer ever reaches this slot, versus a stale-pool over-run.
 			Console.Error.WriteLine(
 				$"[LOADER][WARN] watch-writes {(inRange ? $"IN-RANGE hit#{eventIndex}" : $"page-step#{stepIndex}")}: " +
 				$"writer=0x{writerRip:X16} '{instructionText}' target=0x{target:X16} qword=0x{value:X16} " +
-				$"rax=0x{raxReg:X16} rcx=0x{rcxReg:X16} rdx=0x{rdxReg:X16} rsi=0x{rsiReg:X16} rdi=0x{rdiReg:X16}");
+				$"rax=0x{_watchStepPreRax:X16} rcx=0x{_watchStepPreRcx:X16} rdx=0x{_watchStepPreRdx:X16} rsi=0x{_watchStepPreRsi:X16} rdi=0x{_watchStepPreRdi:X16}");
 			Console.Error.Flush();
 		}
-
-		var eflags = (uint)Marshal.ReadInt32((nint)contextRecord + CtxEFlagsOffset);
-		Marshal.WriteInt32((nint)contextRecord + CtxEFlagsOffset, (int)(eflags & ~EFlagsTrapFlag));
 
 		if (eventIndex >= WatchWritesMaxEvents)
 		{
