@@ -714,7 +714,7 @@ public sealed partial class DirectExecutionBackend
 			var r15 = ReadCtxU64(contextRecord, 240);
 			var rax = ReadCtxU64(contextRecord, CTX_RAX);
 			Console.Error.WriteLine(
-				$"[LOADER][WARN] guest-bp 0x{rip:X16} hit#{hit + 1}: rax=0x{rax:X16} rdi=0x{rdi:X16} rsi=0x{rsi:X16} rdx=0x{rdx:X16} rcx=0x{rcx:X16} r8=0x{r8:X16} r9=0x{r9:X16} r12=0x{r12:X16} r13=0x{r13:X16} r14=0x{r14:X16} r15=0x{r15:X16}");
+				$"[LOADER][WARN] guest-bp 0x{rip:X16} hit#{hit + 1} tid={GetCurrentThreadId()}: rax=0x{rax:X16} rdi=0x{rdi:X16} rsi=0x{rsi:X16} rdx=0x{rdx:X16} rcx=0x{rcx:X16} r8=0x{r8:X16} r9=0x{r9:X16} r12=0x{r12:X16} r13=0x{r13:X16} r14=0x{r14:X16} r15=0x{r15:X16}");
 			Console.Error.Flush();
 		}
 
