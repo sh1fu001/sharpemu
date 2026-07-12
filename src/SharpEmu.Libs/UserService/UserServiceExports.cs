@@ -147,6 +147,31 @@ public static class UserServiceExports
     // Name not yet in ps5_names.txt and the NID was captured from titles; revisit when the symbol is catalogued.
     #pragma warning disable SHEM006
     [SysAbiExport(
+        Nid = "woNpu+45RLk",
+        ExportName = "sceUserServiceGetAgeLevel",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceUserService")]
+    public static int UserServiceGetAgeLevel(CpuContext ctx)
+    {
+        const int AdultAgeLevel = 19;
+        var userId = unchecked((int)ctx[CpuRegister.Rdi]);
+        var ageLevelAddress = ctx[CpuRegister.Rsi];
+        if (userId != PrimaryUserId)
+        {
+            return ctx.SetReturn(OrbisUserServiceErrorInvalidParameter);
+        }
+
+        if (ageLevelAddress == 0)
+        {
+            return ctx.SetReturn(OrbisUserServiceErrorInvalidArgument);
+        }
+
+        return ctx.TryWriteInt32(ageLevelAddress, AdultAgeLevel)
+            ? ctx.SetReturn(0)
+            : ctx.SetReturn((int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT);
+    }
+
+    [SysAbiExport(
         Nid = "D-CzAxQL0XI",
         ExportName = "sceUserServiceGetPlatformPrivacySetting",
         Target = Generation.Gen4 | Generation.Gen5,

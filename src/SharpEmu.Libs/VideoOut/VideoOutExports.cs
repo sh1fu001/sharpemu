@@ -807,6 +807,25 @@ public static class VideoOutExports
     }
 
     [SysAbiExport(
+        Nid = "w0hLuNarQxY",
+        ExportName = "sceVideoOutConfigureOutput",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceVideoOut")]
+    public static int VideoOutConfigureOutput(CpuContext ctx)
+    {
+        var handle = unchecked((int)ctx[CpuRegister.Rdi]);
+        var parameterAddress = ctx[CpuRegister.Rsi];
+        if (parameterAddress == 0)
+        {
+            return OrbisVideoOutErrorInvalidAddress;
+        }
+
+        return TryGetPort(handle, out _)
+            ? (int)OrbisGen2Result.ORBIS_GEN2_OK
+            : OrbisVideoOutErrorInvalidHandle;
+    }
+
+    [SysAbiExport(
         Nid = "MTxxrOCeSig",
         ExportName = "sceVideoOutSetWindowModeMargins",
         Target = Generation.Gen4 | Generation.Gen5,
