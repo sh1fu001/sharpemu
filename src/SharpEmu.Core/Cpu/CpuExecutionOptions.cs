@@ -6,10 +6,12 @@ namespace SharpEmu.Core.Cpu;
 public readonly struct CpuExecutionOptions
 {
     public bool EnableDisasmDiagnostics { get; init; }
-    
+
     public CpuExecutionEngine CpuEngine { get; init; }
 
     public bool StrictDynlibResolution { get; init; }
 
     public int ImportTraceLimit { get; init; }
+
+    public bool TraceStartup { get; init; }
 }

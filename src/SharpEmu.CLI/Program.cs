@@ -503,8 +503,8 @@ internal static partial class Program
 
     private static void PrintUsage()
     {
-        Log.Info("Usage: SharpEmu.CLI [--strict] [--trace-imports[=N]] [--cpu-engine=<native>] [--log-level=<level>] <path-to-eboot.bin>");
-        Log.Info(@"Example: SharpEmu.CLI --cpu-engine=native --trace-imports=64 --log-level=debug ""E:\Games\...\eboot.bin""");
+        Log.Info("Usage: SharpEmu.CLI [--strict] [--trace-startup] [--trace-imports[=N]] [--cpu-engine=<native>] [--log-level=<level>] <path-to-eboot.bin>");
+        Log.Info(@"Example: SharpEmu.CLI --trace-startup --cpu-engine=native --trace-imports=64 --log-level=debug ""E:\Games\...\eboot.bin""");
     }
 
     private static bool TryParseArguments(
@@ -522,6 +522,7 @@ internal static partial class Program
         }
 
         var strictDynlibResolution = false;
+        var traceStartup = false;
         var importTraceLimit = 0;
         var cpuEngine = CpuExecutionEngine.NativeOnly;
         logLevel = SharpEmuLog.MinimumLevel;
@@ -532,6 +533,12 @@ internal static partial class Program
             if (string.Equals(argument, "--strict", StringComparison.OrdinalIgnoreCase))
             {
                 strictDynlibResolution = true;
+                continue;
+            }
+
+            if (string.Equals(argument, "--trace-startup", StringComparison.OrdinalIgnoreCase))
+            {
+                traceStartup = true;
                 continue;
             }
 
@@ -643,6 +650,7 @@ internal static partial class Program
             CpuEngine = cpuEngine,
             StrictDynlibResolution = strictDynlibResolution,
             ImportTraceLimit = importTraceLimit,
+            TraceStartup = traceStartup,
         };
         return true;
     }
