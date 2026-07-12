@@ -4,11 +4,15 @@
 using System.Runtime.InteropServices;
 using SharpEmu.Core.Loader;
 using SharpEmu.HLE;
+using SharpEmu.Libs.Kernel;
 using SharpEmu.Logging;
 
 namespace SharpEmu.Core.Memory;
 
-public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryAllocator, IDisposable
+// Implements IReservableVirtualMemory (defined in SharpEmu.Libs, see MEM-003 /
+// KernelVirtualRangeAllocator.cs) so KernelVirtualRangeAllocator.TryReserve/TryRelease can call
+// AllocateAt/ReleaseAt/TryAllocateAtOrAbove directly instead of through reflection.
+public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryAllocator, IReservableVirtualMemory, IDisposable
 {
     private static readonly SharpEmuLogger Log = SharpEmuLog.For("VMEM");
 

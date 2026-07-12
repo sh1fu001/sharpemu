@@ -8,9 +8,39 @@ using System.Reflection;
 
 namespace SharpEmu.Libs.Kernel;
 
+/// <summary>
+/// Compile-time-visible "port" that <c>SharpEmu.Core.Memory.PhysicalVirtualMemory</c> implements
+/// so <see cref="KernelVirtualRangeAllocator"/> can call it directly instead of through
+/// reflection (see MEM-003 / analysis/hle-runtime-007-live-debugger-capture.md). This has to be
+/// public and to live here in SharpEmu.Libs rather than on <c>IVirtualMemory</c> itself:
+/// <c>SharpEmu.Core</c> already project-references <c>SharpEmu.Libs</c>, so a reference in the
+/// other direction (Libs -> Core) would be circular. Defining the port on the lower-level
+/// assembly and letting Core implement it is the standard way to break that cycle.
+/// </summary>
+public interface IReservableVirtualMemory
+{
+    ulong AllocateAt(ulong desiredAddress, ulong size, bool executable, bool allowAlternative);
+
+    bool ReleaseAt(ulong address, ulong size);
+
+    bool TryAllocateAtOrAbove(ulong desiredAddress, ulong size, bool executable, ulong alignment, out ulong actualAddress);
+}
+
 internal static class KernelVirtualRangeAllocator
 {
-    private static readonly ConcurrentDictionary<Type, Accessor> _accessors = new();
+    // ctx.Memory is always a SharpEmu.Core.Cpu.TrackedCpuMemory wrapping the
+    // IReservableVirtualMemory instance (in practice always PhysicalVirtualMemory - see
+    // SharpEmuRuntime.cs/CpuDispatcher.cs; SharpEmu.Core.Memory.VirtualMemory is never
+    // instantiated anywhere in the codebase). TrackedCpuMemory itself is not visible from this
+    // assembly (no project reference), so unwrapping it still needs a single reflective property
+    // lookup by name ("Inner"). This is deliberately kept minimal and separate from the actual
+    // allocation calls: it is a plain property getter with no exception-heavy call graph, and is
+    // not implicated by the "Invalid Program: attempted to call a UnmanagedCallersOnly method
+    // from managed code" crash documented in
+    // analysis/hle-runtime-007-live-debugger-capture.md, which is specifically triggered by
+    // MethodBase.Invoke of the allocation methods themselves. That reflective Invoke is what this
+    // refactor removes, replacing it with direct calls through IReservableVirtualMemory.
+    private static readonly ConcurrentDictionary<Type, PropertyInfo?> _innerProperties = new();
 
     public static bool TryReserve(
         CpuContext ctx,
@@ -31,38 +61,24 @@ internal static class KernelVirtualRangeAllocator
 
         try
         {
-            if (!TryResolveAccessor(ctx.Memory, out var target, out var accessor))
+            if (!TryResolveTarget(ctx.Memory, out var target))
             {
                 Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: AllocateAt missing on {ctx.Memory.GetType().FullName}");
                 return false;
             }
 
-            if (allowSearch && accessor.AllocateAtOrAbove is not null)
+            if (allowSearch &&
+                target.TryAllocateAtOrAbove(desiredAddress, length, executable, alignment, out var searchedAddress) &&
+                searchedAddress != 0)
             {
-                var searchArgs = new object[] { desiredAddress, length, executable, alignment, 0UL };
-                var searchResult = accessor.AllocateAtOrAbove.Invoke(target, searchArgs);
-                if (searchResult is bool trueValue && trueValue &&
-                    searchArgs[4] is ulong searchedAddress && searchedAddress != 0)
-                {
-                    mappedAddress = searchedAddress;
-                    return true;
-                }
+                mappedAddress = searchedAddress;
+                return true;
             }
 
-            if (accessor.AllocateAt is null)
+            var allocated = target.AllocateAt(desiredAddress, length, executable, allowAllocateAtAlternative);
+            if (allocated == 0)
             {
-                Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: AllocateAt missing on {target.GetType().FullName}");
-                return false;
-            }
-
-            var invokeArgs = accessor.AllocateAtHasAllowAlternativeArg
-                ? new object[] { desiredAddress, length, executable, allowAllocateAtAlternative }
-                : new object[] { desiredAddress, length, executable };
-            var result = accessor.AllocateAt.Invoke(target, invokeArgs);
-            if (result is not ulong allocated || allocated == 0)
-            {
-                var resultType = result?.GetType().FullName ?? "null";
-                Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: AllocateAt returned {resultType} value={result ?? "null"}");
+                Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: AllocateAt returned 0");
                 return false;
             }
 
@@ -71,8 +87,7 @@ internal static class KernelVirtualRangeAllocator
         }
         catch (Exception ex)
         {
-            Exception inner = ex is TargetInvocationException { InnerException: { } tie } ? tie : ex;
-            Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: AllocateAt invocation threw: {inner.GetType().Name}: {inner.Message}");
+            Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: AllocateAt invocation threw: {ex.GetType().Name}: {ex.Message}");
             return false;
         }
     }
@@ -86,110 +101,51 @@ internal static class KernelVirtualRangeAllocator
 
         try
         {
-            if (!TryResolveAccessor(ctx.Memory, out var target, out var accessor) || accessor.ReleaseAt is null)
+            if (!TryResolveTarget(ctx.Memory, out var target))
             {
                 return false;
             }
 
-            var result = accessor.ReleaseAt.Invoke(target, new object[] { address, length });
-            return result is bool released && released;
+            return target.ReleaseAt(address, length);
         }
         catch (Exception ex)
         {
-            Exception inner = ex is TargetInvocationException { InnerException: { } tie } ? tie : ex;
-            Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: ReleaseAt invocation threw: {inner.GetType().Name}: {inner.Message}");
+            Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: ReleaseAt invocation threw: {ex.GetType().Name}: {ex.Message}");
             return false;
         }
     }
 
-    private static bool TryResolveAccessor(object rootMemory, out object target, out Accessor accessor)
+    private static bool TryResolveTarget(object rootMemory, out IReservableVirtualMemory target)
     {
-        target = rootMemory;
-        accessor = default;
+        object current = rootMemory;
 
         for (var depth = 0; depth < 4; depth++)
         {
-            accessor = _accessors.GetOrAdd(target.GetType(), DiscoverAccessor);
-            if (accessor.AllocateAt is not null || accessor.AllocateAtOrAbove is not null || accessor.ReleaseAt is not null)
+            if (current is IReservableVirtualMemory direct)
             {
+                target = direct;
                 return true;
             }
 
-            if (accessor.InnerProperty is null)
+            var innerProperty = _innerProperties.GetOrAdd(current.GetType(), FindInnerProperty);
+            if (innerProperty is null)
             {
                 break;
             }
 
-            var innerValue = accessor.InnerProperty.GetValue(target);
-            if (innerValue is null || ReferenceEquals(innerValue, target))
+            var innerValue = innerProperty.GetValue(current);
+            if (innerValue is null || ReferenceEquals(innerValue, current))
             {
                 break;
             }
 
-            target = innerValue;
+            current = innerValue;
         }
 
+        target = null!;
         return false;
     }
 
-    private static Accessor DiscoverAccessor(Type type)
-    {
-        MethodInfo? allocateAt = null;
-        MethodInfo? allocateAtOrAbove = null;
-        MethodInfo? releaseAt = null;
-        var allocateAtHasAllowAlternativeArg = false;
-
-        foreach (var candidate in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
-        {
-            var parameters = candidate.GetParameters();
-            if (string.Equals(candidate.Name, "ReleaseAt", StringComparison.Ordinal) &&
-                parameters.Length == 2 &&
-                parameters[0].ParameterType == typeof(ulong) &&
-                parameters[1].ParameterType == typeof(ulong) &&
-                candidate.ReturnType == typeof(bool))
-            {
-                releaseAt = candidate;
-            }
-            else if (string.Equals(candidate.Name, "TryAllocateAtOrAbove", StringComparison.Ordinal) &&
-                parameters.Length == 5 &&
-                parameters[0].ParameterType == typeof(ulong) &&
-                parameters[1].ParameterType == typeof(ulong) &&
-                parameters[2].ParameterType == typeof(bool) &&
-                parameters[3].ParameterType == typeof(ulong) &&
-                parameters[4].ParameterType == typeof(ulong).MakeByRefType())
-            {
-                allocateAtOrAbove = candidate;
-            }
-            else if (string.Equals(candidate.Name, "AllocateAt", StringComparison.Ordinal))
-            {
-                if (parameters.Length == 3 &&
-                    parameters[0].ParameterType == typeof(ulong) &&
-                    parameters[1].ParameterType == typeof(ulong) &&
-                    parameters[2].ParameterType == typeof(bool))
-                {
-                    allocateAt = candidate;
-                    allocateAtHasAllowAlternativeArg = false;
-                }
-                else if (parameters.Length == 4 &&
-                    parameters[0].ParameterType == typeof(ulong) &&
-                    parameters[1].ParameterType == typeof(ulong) &&
-                    parameters[2].ParameterType == typeof(bool) &&
-                    parameters[3].ParameterType == typeof(bool))
-                {
-                    allocateAt = candidate;
-                    allocateAtHasAllowAlternativeArg = true;
-                }
-            }
-        }
-
-        var innerProperty = type.GetProperty("Inner", BindingFlags.Public | BindingFlags.Instance);
-        return new Accessor(allocateAt, allocateAtOrAbove, releaseAt, allocateAtHasAllowAlternativeArg, innerProperty);
-    }
-
-    private readonly record struct Accessor(
-        MethodInfo? AllocateAt,
-        MethodInfo? AllocateAtOrAbove,
-        MethodInfo? ReleaseAt,
-        bool AllocateAtHasAllowAlternativeArg,
-        PropertyInfo? InnerProperty);
+    private static PropertyInfo? FindInnerProperty(Type type) =>
+        type.GetProperty("Inner", BindingFlags.Public | BindingFlags.Instance);
 }
