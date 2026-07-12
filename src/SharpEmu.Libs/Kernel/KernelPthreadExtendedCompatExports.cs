@@ -345,6 +345,105 @@ public static class KernelPthreadExtendedCompatExports
     }
 
     [SysAbiExport(
+        Nid = "P41kTWUS3EI",
+        ExportName = "posix_pthread_getschedparam",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixPthreadGetschedparam(CpuContext ctx)
+    {
+        var thread = ctx[CpuRegister.Rdi];
+        var outPolicyAddress = ctx[CpuRegister.Rsi];
+        var schedParamAddress = ctx[CpuRegister.Rdx];
+        if (thread == 0 || schedParamAddress == 0)
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+        }
+
+        PthreadAttrState attributes;
+        lock (_stateGate)
+        {
+            attributes = GetOrCreateThreadStateLocked(thread).Attributes;
+        }
+
+        if (!ctx.TryWriteInt32(schedParamAddress, attributes.SchedPriority))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        if (outPolicyAddress != 0 && !ctx.TryWriteInt32(outPolicyAddress, attributes.SchedPolicy))
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_MEMORY_FAULT;
+        }
+
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    [SysAbiExport(
+        Nid = "oIRFTjoILbg",
+        ExportName = "posix_pthread_setschedparam",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixPthreadSetschedparamAlias(CpuContext ctx) => PosixPthreadSetschedparam(ctx);
+
+    [SysAbiExport(
+        Nid = "GBUY7ywdULE",
+        ExportName = "posix_pthread_rename_np",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libKernel")]
+    public static int PosixPthreadRenameNp(CpuContext ctx)
+    {
+        var thread = ctx[CpuRegister.Rdi];
+        var nameAddress = ctx[CpuRegister.Rsi];
+        if (thread == 0)
+        {
+            return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_INVALID_ARGUMENT;
+        }
+
+        var name = nameAddress != 0 && TryReadUtf8Z(ctx, nameAddress, 32, out var readName)
+            ? readName
+            : string.Empty;
+
+        lock (_stateGate)
+        {
+            GetOrCreateThreadStateLocked(thread).Name = name;
+        }
+
+        ctx[CpuRegister.Rax] = 0;
+        return (int)OrbisGen2Result.ORBIS_GEN2_OK;
+    }
+
+    private static bool TryReadUtf8Z(CpuContext ctx, ulong address, int maxLength, out string value)
+    {
+        value = string.Empty;
+        if (address == 0)
+        {
+            return true;
+        }
+
+        Span<byte> one = stackalloc byte[1];
+        var bytes = new byte[maxLength];
+        var count = 0;
+        for (; count < maxLength; count++)
+        {
+            if (!ctx.Memory.TryRead(address + (ulong)count, one))
+            {
+                return false;
+            }
+
+            if (one[0] == 0)
+            {
+                break;
+            }
+
+            bytes[count] = one[0];
+        }
+
+        value = Encoding.UTF8.GetString(bytes, 0, count);
+        return true;
+    }
+
+    [SysAbiExport(
         Nid = "nsYoNRywwNg",
         ExportName = "scePthreadAttrInit",
         Target = Generation.Gen4 | Generation.Gen5,

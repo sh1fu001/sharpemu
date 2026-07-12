@@ -14,9 +14,10 @@ using SharpEmu.Libs.SaveData;
 using SharpEmu.Logging;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text;
-using System.IO;
 
 namespace SharpEmu.Core.Runtime;
 
@@ -39,6 +40,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
     private readonly ISymbolCatalog _symbolCatalog;
     private readonly CpuExecutionOptions _cpuExecutionOptions;
     private readonly IFileSystem _fileSystem;
+    private readonly bool _traceStartup;
     private bool _disposed;
 
     public string? LastExecutionDiagnostics { get; private set; }
@@ -70,8 +72,10 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             CpuEngine = cpuExecutionOptions.CpuEngine,
             StrictDynlibResolution = cpuExecutionOptions.StrictDynlibResolution,
             ImportTraceLimit = Math.Max(0, cpuExecutionOptions.ImportTraceLimit),
+            TraceStartup = cpuExecutionOptions.TraceStartup,
         };
         _fileSystem = fileSystem ?? new PhysicalFileSystem();
+        _traceStartup = cpuExecutionOptions.TraceStartup;
     }
 
     public static ISharpEmuRuntime CreateDefault(SharpEmuRuntimeOptions options = default)
@@ -81,6 +85,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             CpuEngine = options.CpuEngine,
             StrictDynlibResolution = options.StrictDynlibResolution,
             ImportTraceLimit = Math.Max(0, options.ImportTraceLimit),
+            TraceStartup = options.TraceStartup,
         };
         var moduleManager = new ModuleManager();
         moduleManager.RegisterFromAssembly(typeof(VideoOutExports).Assembly, Generation.Gen4 | Generation.Gen5, Aerolib.Instance);
@@ -130,8 +135,10 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
 
     public OrbisGen2Result Run(string ebootPath)
     {
+        var startupTrace = new StartupTraceSession(_traceStartup);
         var normalizedEbootPath = Path.GetFullPath(ebootPath);
         using var app0Binding = BindApp0Root(normalizedEbootPath);
+        startupTrace.Mark("DISCOVERED", $"path={normalizedEbootPath}");
         Log.Info($"Loading: {ebootPath}");
         LastExecutionDiagnostics = null;
         LastExecutionTrace = null;
@@ -139,7 +146,11 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         LastBasicBlockTrace = null;
         LastMilestoneLog = null;
         KernelModuleRegistry.Reset();
+        startupTrace.Mark("LOAD_IMAGE_START");
         var image = LoadImage(normalizedEbootPath);
+        startupTrace.Mark(
+            "LOAD_IMAGE_DONE",
+            $"self={image.IsSelf} entry=0x{image.EntryPoint:X16} abi={image.ElfHeader.AbiVersion} imports={image.ImportStubs.Count} runtime_symbols={image.RuntimeSymbols.Count}");
         VideoOutExports.ConfigureApplicationInfo(image.Title, image.TitleId, image.Version, BuildInfo.CommitSha);
         SaveDataExports.ConfigureApplicationInfo(image.TitleId);
         LogAppBundleInfo(normalizedEbootPath, image);
@@ -147,6 +158,7 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         KernelRuntimeCompatExports.ConfigureProcessProcParamAddress(image.ProcParamAddress);
         Log.Info($"Entry: 0x{image.EntryPoint:X16}");
         var generation = image.ElfHeader.AbiVersion == 2 ? Generation.Gen5 : Generation.Gen4;
+        startupTrace.Mark("MAIN_IMAGE_REGISTERED", $"generation={generation}");
         var activeImportStubs = new Dictionary<ulong, string>(image.ImportStubs);
         var activeRuntimeSymbols = new Dictionary<string, ulong>(image.RuntimeSymbols, StringComparer.Ordinal);
         var processImageName = Path.GetFileName(ebootPath);
@@ -157,8 +169,13 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
 
         HleDataSymbols.ConfigureProcessImageName(processImageName);
         MergeKnownHleDataSymbols(activeRuntimeSymbols);
+        startupTrace.Mark("MODULE_PRELOAD_START");
         var loadedModuleImages = LoadAdjacentSceModules(ebootPath, activeImportStubs, activeRuntimeSymbols);
+        startupTrace.Mark(
+            "MODULE_PRELOAD_DONE",
+            $"count={loadedModuleImages.Count} import_stubs={activeImportStubs.Count} runtime_symbols={activeRuntimeSymbols.Count}");
         RebindImportedDataSymbols(image, loadedModuleImages, activeRuntimeSymbols);
+        startupTrace.Mark("INITIALIZERS_START");
         var initializerResult = RunAllInitializers(
             image,
             loadedModuleImages,
@@ -170,14 +187,17 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
         {
             Log.Error($"Initializer dispatch failed: {failedInitializerResult}");
             LastExecutionTrace = _cpuDispatcher.LastImportResolutionTrace;
-            LastMilestoneLog = _cpuDispatcher.LastMilestoneLog;
+            startupTrace.Mark("INITIALIZERS_FAILED", failedInitializerResult.ToString());
+            LastMilestoneLog = startupTrace.Compose(_cpuDispatcher.LastMilestoneLog);
             LastSessionSummary = BuildSessionSummary(_cpuDispatcher.LastSessionSummary);
             LastBasicBlockTrace = _cpuDispatcher.LastBasicBlockTrace;
             return failedInitializerResult;
         }
 
+        startupTrace.Mark("INITIALIZERS_DONE");
         Log.Info($"Dispatching, gen: {generation}");
         Log.Debug($"About to call DispatchEntry with entryPoint=0x{image.EntryPoint:X16}");
+        startupTrace.Mark("DISPATCH_ENTRY_START", $"entry=0x{image.EntryPoint:X16}");
 
         var result = _cpuDispatcher.DispatchEntry(
             image.EntryPoint,
@@ -187,10 +207,11 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
             processImageName,
             _cpuExecutionOptions);
 
+        startupTrace.Mark("DISPATCH_ENTRY_DONE", result.ToString());
         Log.Info($"DispatchEntry returned: {result}");
         Log.Info($"Dispatch result: {result}");
         LastExecutionTrace = _cpuDispatcher.LastImportResolutionTrace;
-        LastMilestoneLog = _cpuDispatcher.LastMilestoneLog;
+        LastMilestoneLog = startupTrace.Compose(_cpuDispatcher.LastMilestoneLog);
         LastSessionSummary = BuildSessionSummary(_cpuDispatcher.LastSessionSummary);
         LastBasicBlockTrace = _cpuDispatcher.LastBasicBlockTrace;
         if (result == OrbisGen2Result.ORBIS_GEN2_ERROR_CPU_TRAP && _cpuDispatcher.LastTrapInfo is { } trapInfo)
@@ -356,7 +377,57 @@ public sealed class SharpEmuRuntime : ISharpEmuRuntime
                 $"Not implemented: source={notImplementedInfo.Source}, rip=0x{notImplementedInfo.InstructionPointer:X16}{decodedNotImplementedText}, nid={nidText}, export={exportText}, library={libraryText}, import_stubs={activeImportStubs.Count}{ripStubText}{aerolibText}{detailText}{transferText}";
         }
 
+        LastMilestoneLog = startupTrace.Compose(LastMilestoneLog);
+
         return result;
+    }
+
+    private sealed class StartupTraceSession
+    {
+        private readonly bool _enabled;
+        private readonly Stopwatch _stopwatch;
+        private readonly StringBuilder _builder;
+
+        public StartupTraceSession(bool enabled)
+        {
+            _enabled = enabled;
+            _stopwatch = Stopwatch.StartNew();
+            _builder = new StringBuilder();
+        }
+
+        public void Mark(string stage, string? details = null)
+        {
+            var line = details is null
+                ? $"[STARTUP] T+{_stopwatch.ElapsedMilliseconds}ms {stage}"
+                : $"[STARTUP] T+{_stopwatch.ElapsedMilliseconds}ms {stage} {details}";
+
+            if (_builder.Length > 0)
+            {
+                _builder.AppendLine();
+            }
+
+            _builder.Append(line);
+
+            if (_enabled)
+            {
+                Console.Error.WriteLine(line);
+            }
+        }
+
+        public string Compose(string? downstreamLog)
+        {
+            if (_builder.Length == 0)
+            {
+                return downstreamLog ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(downstreamLog))
+            {
+                return _builder.ToString();
+            }
+
+            return string.Concat(_builder, Environment.NewLine, downstreamLog);
+        }
     }
 
     private static void LogAppBundleInfo(string ebootPath, SelfImage image)

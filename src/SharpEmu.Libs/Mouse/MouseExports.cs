@@ -7,6 +7,16 @@ namespace SharpEmu.Libs.Mouse;
 
 public static class MouseExports
 {
+    [SysAbiExport(
+        Nid = "Qs0wWulgl7U",
+        ExportName = "sceMouseInit",
+        Target = Generation.Gen4 | Generation.Gen5,
+        LibraryName = "libSceMouse")]
+    public static int MouseInit(CpuContext ctx)
+    {
+        return ctx.SetReturn(0);
+    }
+
     // Returns 0 read entries: no mouse is connected. This NID was previously misbound
     // as an sceNgs2VoiceGetState alias.
     [SysAbiExport(

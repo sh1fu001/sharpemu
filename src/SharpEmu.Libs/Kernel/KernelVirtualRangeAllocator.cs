@@ -69,9 +69,35 @@ internal static class KernelVirtualRangeAllocator
             mappedAddress = allocated;
             return true;
         }
-        catch
+        catch (Exception ex)
         {
-            Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: AllocateAt invocation threw");
+            Exception inner = ex is TargetInvocationException { InnerException: { } tie } ? tie : ex;
+            Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: AllocateAt invocation threw: {inner.GetType().Name}: {inner.Message}");
+            return false;
+        }
+    }
+
+    public static bool TryRelease(CpuContext ctx, ulong address, ulong length, string traceName)
+    {
+        if (address == 0 || length == 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!TryResolveAccessor(ctx.Memory, out var target, out var accessor) || accessor.ReleaseAt is null)
+            {
+                return false;
+            }
+
+            var result = accessor.ReleaseAt.Invoke(target, new object[] { address, length });
+            return result is bool released && released;
+        }
+        catch (Exception ex)
+        {
+            Exception inner = ex is TargetInvocationException { InnerException: { } tie } ? tie : ex;
+            Console.Error.WriteLine($"[LOADER][TRACE] {traceName}: ReleaseAt invocation threw: {inner.GetType().Name}: {inner.Message}");
             return false;
         }
     }
@@ -84,7 +110,7 @@ internal static class KernelVirtualRangeAllocator
         for (var depth = 0; depth < 4; depth++)
         {
             accessor = _accessors.GetOrAdd(target.GetType(), DiscoverAccessor);
-            if (accessor.AllocateAt is not null || accessor.AllocateAtOrAbove is not null)
+            if (accessor.AllocateAt is not null || accessor.AllocateAtOrAbove is not null || accessor.ReleaseAt is not null)
             {
                 return true;
             }
@@ -110,12 +136,21 @@ internal static class KernelVirtualRangeAllocator
     {
         MethodInfo? allocateAt = null;
         MethodInfo? allocateAtOrAbove = null;
+        MethodInfo? releaseAt = null;
         var allocateAtHasAllowAlternativeArg = false;
 
         foreach (var candidate in type.GetMethods(BindingFlags.Public | BindingFlags.Instance))
         {
             var parameters = candidate.GetParameters();
-            if (string.Equals(candidate.Name, "TryAllocateAtOrAbove", StringComparison.Ordinal) &&
+            if (string.Equals(candidate.Name, "ReleaseAt", StringComparison.Ordinal) &&
+                parameters.Length == 2 &&
+                parameters[0].ParameterType == typeof(ulong) &&
+                parameters[1].ParameterType == typeof(ulong) &&
+                candidate.ReturnType == typeof(bool))
+            {
+                releaseAt = candidate;
+            }
+            else if (string.Equals(candidate.Name, "TryAllocateAtOrAbove", StringComparison.Ordinal) &&
                 parameters.Length == 5 &&
                 parameters[0].ParameterType == typeof(ulong) &&
                 parameters[1].ParameterType == typeof(ulong) &&
@@ -148,12 +183,13 @@ internal static class KernelVirtualRangeAllocator
         }
 
         var innerProperty = type.GetProperty("Inner", BindingFlags.Public | BindingFlags.Instance);
-        return new Accessor(allocateAt, allocateAtOrAbove, allocateAtHasAllowAlternativeArg, innerProperty);
+        return new Accessor(allocateAt, allocateAtOrAbove, releaseAt, allocateAtHasAllowAlternativeArg, innerProperty);
     }
 
     private readonly record struct Accessor(
         MethodInfo? AllocateAt,
         MethodInfo? AllocateAtOrAbove,
+        MethodInfo? ReleaseAt,
         bool AllocateAtHasAllowAlternativeArg,
         PropertyInfo? InnerProperty);
 }

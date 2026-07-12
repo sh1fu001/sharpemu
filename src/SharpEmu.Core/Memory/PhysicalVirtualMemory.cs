@@ -118,6 +118,26 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
 
         var alignedSize = (size + 0xFFF) & ~0xFFFUL;
 
+        _gate.EnterReadLock();
+        try
+        {
+            if (FindRegion(desiredAddress, alignedSize) is not null)
+            {
+                // The requested [desiredAddress, desiredAddress + alignedSize) range is already fully
+                // backed by a region we previously allocated (typical of the guest reserve-then-fix-map
+                // idiom: reserve a range via a non-fixed search, then immediately re-request the exact
+                // same range with MAP_FIXED to finalize it). Windows VirtualAlloc cannot re-allocate over
+                // an already committed/reserved region, so treat this as an idempotent success instead of
+                // failing the fixed mapping.
+                TraceVmem($"AllocateAt: 0x{desiredAddress:X16} ({alignedSize} bytes) already backed by an existing region, treating as idempotent success");
+                return desiredAddress;
+            }
+        }
+        finally
+        {
+            _gate.ExitReadLock();
+        }
+
         var protection = executable ? PAGE_EXECUTE_READWRITE : PAGE_READWRITE;
         var allocationType = MEM_COMMIT | MEM_RESERVE;
         var reservedOnly = false;
@@ -243,6 +263,48 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
         TraceVmem($"Allocated {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes) lazy_prime={lazyPrimeState}");
 
         return actualAddress;
+    }
+
+    public bool ReleaseAt(ulong address, ulong size)
+    {
+        if (address == 0 || size == 0)
+        {
+            return false;
+        }
+
+        var alignedSize = AlignUp(size, PageSize);
+
+        _gate.EnterWriteLock();
+        try
+        {
+            var index = _regions.FindIndex(region =>
+                region.VirtualAddress == address && region.Size == alignedSize);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            var region = _regions[index];
+            if (!VirtualFree((void*)region.VirtualAddress, 0, MEM_RELEASE))
+            {
+                return false;
+            }
+
+            _regions.RemoveAt(index);
+
+            var regionEnd = region.VirtualAddress + region.Size;
+            for (var pageAddress = region.VirtualAddress; pageAddress < regionEnd; pageAddress += PageSize)
+            {
+                _pageProtections.Remove(pageAddress);
+            }
+
+            TraceVmem($"Released region: 0x{region.VirtualAddress:X16} - 0x{regionEnd:X16} ({region.Size} bytes)");
+            return true;
+        }
+        finally
+        {
+            _gate.ExitWriteLock();
+        }
     }
 
     public bool TryAllocateAtOrAbove(

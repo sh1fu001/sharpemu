@@ -17,6 +17,12 @@ public sealed partial class DirectExecutionBackend
 	private readonly object _importResultLogSampleGate = new();
 	private readonly Dictionary<string, int> _importResultLogSamples = new(StringComparer.Ordinal);
 
+	// CPU-NATIVE-001: dedicated counter for the narrow `CD 45` (int 45h) unemulated-trap
+	// recovery path in TryRecoverUnemulatedTrapInstruction below. Intentionally distinct
+	// from _rawSentinelRecoveries (DirectExecutionBackend.cs) so the two recovery
+	// mechanisms remain independently observable/auditable.
+	private static int _unemulatedTrapRecoveries;
+
 	private static ulong ImportDispatchGatewayManaged(nint backendHandle, int importIndex, nint argPackPtr)
 	{
 		if (LogThreadMode)
@@ -57,12 +63,32 @@ public sealed partial class DirectExecutionBackend
 
 	private unsafe static int RawVectoredHandlerManaged(void* exceptionInfo)
 	{
-		return TryRecoverUnresolvedSentinel(exceptionInfo);
+		int result = TryRecoverUnresolvedSentinel(exceptionInfo);
+		if (result != 0)
+		{
+			return result;
+		}
+		result = TryRecoverUnemulatedTrapInstruction(exceptionInfo);
+		if (result != 0)
+		{
+			return result;
+		}
+		return TryLogStackOverflowDiagnostic(exceptionInfo);
 	}
 
 	private unsafe static int RawUnhandledFilterManaged(void* exceptionInfo)
 	{
-		return TryRecoverUnresolvedSentinel(exceptionInfo);
+		int result = TryRecoverUnresolvedSentinel(exceptionInfo);
+		if (result != 0)
+		{
+			return result;
+		}
+		result = TryRecoverUnemulatedTrapInstruction(exceptionInfo);
+		if (result != 0)
+		{
+			return result;
+		}
+		return TryLogStackOverflowDiagnostic(exceptionInfo);
 	}
 
 	private unsafe static int TryRecoverUnresolvedSentinel(void* exceptionInfo)
@@ -94,6 +120,90 @@ public sealed partial class DirectExecutionBackend
 			}
 			return -1;
 		}
+		return 0;
+	}
+
+	// CPU-NATIVE-001: narrow, byte-pattern-specific fallback tried only after
+	// TryRecoverUnresolvedSentinel above has already failed to match. Unlike that
+	// path, this one is NOT a sentinel-value heuristic — it recognizes exactly one
+	// concrete 2-byte instruction encoding (`CD 45` = `int 45h`) at the faulting RIP,
+	// which real (unmodified) PS5 guest code has been observed to fall into with no
+	// usermode IDT handler available (see analysis/hle-runtime-005-crash-disassembly.md).
+	// Deliberately does NOT widen IsUnresolvedSentinel / IsUnresolvedRuntimeSentinel to
+	// treat -1 as unresolved — that was investigated and explicitly rejected as too
+	// broad/heuristic. Skips the offending instruction (RIP += 2) and resumes, rather
+	// than letting the host process crash.
+	private unsafe static int TryRecoverUnemulatedTrapInstruction(void* exceptionInfo)
+	{
+		EXCEPTION_RECORD* exceptionRecord = ((EXCEPTION_POINTERS*)exceptionInfo)->ExceptionRecord;
+		if (exceptionRecord->ExceptionCode != 3221225477u)
+		{
+			return 0;
+		}
+		// Restrict to the exact "phantom AV" signature documented in
+		// analysis/hle-runtime-005-crash-disassembly.md (target == -1): a bare `int N`
+		// with no usermode IDT gate is reported by Windows as an access violation whose
+		// ExceptionInformation[1] is not a real dereferenced address. This also makes the
+		// RIP byte read below safe by construction — CorruptedStateException-class faults
+		// (a genuine execute-from-unmapped-page AV) are not reliably catchable by a C#
+		// try/catch on this runtime, so this path must never attempt the raw read for an
+		// ordinary memory-access AV, only for this specific non-page-fault-shaped one.
+		ulong accessType = exceptionRecord->NumberParameters >= 1 ? exceptionRecord->ExceptionInformation[0] : 0;
+		ulong target = exceptionRecord->NumberParameters >= 2 ? exceptionRecord->ExceptionInformation[1] : 0;
+		// accessType == 8 means the fault was a genuine execute-from-this-address fetch
+		// fault (RIP == the faulting address itself), not the "phantom" trap-instruction
+		// shape this path targets. Excluding it closes the theoretical edge case where a
+		// corrupted control-flow target of exactly -1 would make target == rip == -1 for
+		// a REAL unmapped-page fetch fault, which the raw byte read below cannot safely
+		// recover from (see review note in docs/handoffs/LOCAL-CPU-NATIVE-001-20260712-H1.md).
+		if (target != 0xFFFFFFFFFFFFFFFFUL || accessType == 8)
+		{
+			return 0;
+		}
+		void* contextRecord = ((EXCEPTION_POINTERS*)exceptionInfo)->ContextRecord;
+		ulong rip = ReadCtxU64(contextRecord, 248);
+		try
+		{
+			byte* code = (byte*)rip;
+			if (code[0] != 0xCD || code[1] != 0x45)
+			{
+				return 0;
+			}
+		}
+		catch
+		{
+			// Deliberate empty catch: reading arbitrary guest RIP bytes from within a
+			// vectored exception handler must never itself throw past this point. If
+			// the read faults, we simply don't recognize the pattern and fall through
+			// to the existing (crashing) behavior below.
+			return 0;
+		}
+		WriteCtxU64(contextRecord, 248, rip + 2);
+		Interlocked.Increment(ref _unemulatedTrapRecoveries);
+		Console.Error.WriteLine(
+			$"[LOADER][WARN] CPU-NATIVE-001: recovered from unemulated `int 45h` (CD 45) trap at RIP=0x{rip:X16}; " +
+			$"skipped instruction and resumed at 0x{rip + 2:X16} (unemulated_trap_recoveries={_unemulatedTrapRecoveries})");
+		return -1;
+	}
+
+	// CPU-NATIVE-002: diagnostic-only, tried only after both TryRecoverUnresolvedSentinel
+	// and TryRecoverUnemulatedTrapInstruction above have already failed to match. Purpose
+	// is purely to confirm or refute the HLE-RUNTIME-006 STATUS_STACK_OVERFLOW hypothesis
+	// for the silent second crash — this path never attempts recovery and always returns 0
+	// so the process terminates exactly as it does today; it only logs the faulting RIP/RSP
+	// first, in case the stack is already nearly exhausted by the time this fires.
+	private unsafe static int TryLogStackOverflowDiagnostic(void* exceptionInfo)
+	{
+		EXCEPTION_RECORD* exceptionRecord = ((EXCEPTION_POINTERS*)exceptionInfo)->ExceptionRecord;
+		if (exceptionRecord->ExceptionCode != 3221225725u)
+		{
+			return 0;
+		}
+		void* contextRecord = ((EXCEPTION_POINTERS*)exceptionInfo)->ContextRecord;
+		ulong rip = ReadCtxU64(contextRecord, 248);
+		ulong rsp = ReadCtxU64(contextRecord, 152);
+		Console.Error.WriteLine(
+			$"[LOADER][ERROR] CPU-NATIVE-002: STATUS_STACK_OVERFLOW (0xC00000FD) detected at RIP=0x{rip:X16} RSP=0x{rsp:X16}; no recovery attempted, terminating.");
 		return 0;
 	}
 

@@ -18,6 +18,7 @@ public sealed class SelfLoader : ISelfLoader
 {
     private static readonly SharpEmuLogger Log = SharpEmuLog.For("Loader");
     private const uint SelfMagic = 0x4F153D1D;
+    private const uint ModuleSelfMagic = 0x5414F5EE;
     private const ulong SelfSegmentFlag = 0x800;
     private const int PageSize = 0x1000;
     private const ulong ImportStubBaseAddress = 0x0000_7000_0000_0000UL;
@@ -323,12 +324,13 @@ public sealed class SelfLoader : ISelfLoader
             throw new InvalidDataException("Input image is too small to contain an ELF header.");
         }
 
-        if (imageData.Length >= sizeof(uint) && BinaryPrimitives.ReadUInt32BigEndian(imageData[..sizeof(uint)]) == SelfMagic)
+        if (imageData.Length >= sizeof(uint) && IsSupportedSelfMagic(BinaryPrimitives.ReadUInt32BigEndian(imageData[..sizeof(uint)])))
         {
             var selfHeader = ReadUnmanaged<SelfHeader>(imageData, 0);
             if (!selfHeader.HasKnownLayout || selfHeader.Unknown != 0x22)
             {
-                throw new InvalidDataException("SELF header signature is not recognized.");
+                throw new InvalidDataException(
+                    $"SELF header signature is not recognized. ident={selfHeader.IdentDebugText} unknown=0x{selfHeader.Unknown:X4}");
             }
 
             var segmentCount = selfHeader.SegmentCount;
@@ -346,6 +348,11 @@ public sealed class SelfLoader : ISelfLoader
         }
 
         return new LoadContext(IsSelf: false, ElfOffset: 0, SelfFileSize: 0, Array.Empty<SelfSegment>());
+    }
+
+    private static bool IsSupportedSelfMagic(uint magic)
+    {
+        return magic == SelfMagic || magic == ModuleSelfMagic;
     }
 
     private static ProgramHeader[] ParseProgramHeaders(
@@ -2379,11 +2386,11 @@ public sealed class SelfLoader : ISelfLoader
 
         public ulong FileSize => _fileSize;
 
+        public string IdentDebugText =>
+            $"{_ident0:X2}{_ident1:X2}{_ident2:X2}{_ident3:X2}-{_ident4:X2}{_ident5:X2}{_ident6:X2}{_ident7:X2}-{_ident8:X2}{_ident9:X2}{_ident10:X2}{_ident11:X2}";
+
         public bool HasKnownLayout =>
-            _ident0 == 0x4F &&
-            _ident1 == 0x15 &&
-            _ident2 == 0x3D &&
-            _ident3 == 0x1D &&
+            HasSupportedMagic &&
             _ident4 == 0x00 &&
             _ident5 == 0x01 &&
             _ident6 == 0x01 &&
@@ -2392,6 +2399,10 @@ public sealed class SelfLoader : ISelfLoader
             _ident9 == 0x01 &&
             _ident10 == 0x00 &&
             _ident11 == 0x00;
+
+        private bool HasSupportedMagic =>
+            (_ident0 == 0x4F && _ident1 == 0x15 && _ident2 == 0x3D && _ident3 == 0x1D) ||
+            (_ident0 == 0x54 && _ident1 == 0x14 && _ident2 == 0xF5 && _ident3 == 0xEE);
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
