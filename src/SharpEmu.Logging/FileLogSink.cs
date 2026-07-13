@@ -104,6 +104,7 @@ public sealed class FileLogSink : ISharpEmuLogSink, IDisposable
 
     private static string ToLevelLabel(LogLevel level) => level switch
     {
+        LogLevel.Verbose => "VERBOSE",
         LogLevel.Trace => "TRACE",
         LogLevel.Debug => "DEBUG",
         LogLevel.Info => "INFO",

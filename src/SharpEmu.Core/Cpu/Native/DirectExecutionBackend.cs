@@ -161,6 +161,14 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 	private int _tlsPatchStubOffset;
 
+	private bool _logTlsPatch;
+
+	private bool _disableTlsLoadPatch;
+
+	private bool _disableTlsStorePatch;
+
+	private bool _disableStackCanaryPatch;
+
 	private nint _unresolvedReturnStub;
 
 	private nint _guestReturnStub;
@@ -2209,6 +2217,10 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 	private unsafe void PatchTlsPatterns()
 	{
 		const ulong MaxScanBytes = 33554432uL;
+		_logTlsPatch = Environment.GetEnvironmentVariable("SHARPEMU_LOG_TLS_PATCH") == "1";
+		_disableTlsLoadPatch = Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_TLS_LOAD_PATCH") == "1";
+		_disableTlsStorePatch = Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_TLS_STORE_PATCH") == "1";
+		_disableStackCanaryPatch = Environment.GetEnvironmentVariable("SHARPEMU_DISABLE_STACK_CANARY_PATCH") == "1";
 		ulong num = _entryPoint;
 		ulong num2 = num + MaxScanBytes;
 		int num3 = 0;
@@ -2238,15 +2250,15 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 				{
 					nint address = (nint)(ptr + i);
 					int remainingBytes = scanBytes - i;
-					if (TryPatchTlsLoadInstruction(address, ptr + i, remainingBytes))
+					if (!_disableTlsLoadPatch && TryPatchTlsLoadInstruction(address, ptr + i, remainingBytes))
 					{
 						num3++;
 					}
-					else if (remainingBytes >= 12 && TryPatchTlsImmediateStoreInstruction(address, ptr + i))
+					else if (!_disableTlsStorePatch && remainingBytes >= 12 && TryPatchTlsImmediateStoreInstruction(address, ptr + i, remainingBytes))
 					{
 						num9++;
 					}
-					else if (TryPatchStackCanaryInstruction(address, ptr + i))
+					else if (!_disableStackCanaryPatch && TryPatchStackCanaryInstruction(address, ptr + i, remainingBytes))
 					{
 						num4++;
 					}
@@ -2255,6 +2267,17 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			num = num6 > num ? num6 : num + 4096uL;
 		}
 		Console.Error.WriteLine($"[LOADER][INFO] Patched {num3} TLS loads, {num9} TLS stores, {num4} stack-canary accesses");
+	}
+
+	private unsafe void LogTlsPatch(nint address, string patchType, byte* source, int availableLength)
+	{
+		int count = availableLength < 16 ? availableLength : 16;
+		var bytes = new string[count];
+		for (int i = 0; i < count; i++)
+		{
+			bytes[i] = source[i].ToString("X2");
+		}
+		Console.Error.WriteLine($"[LOADER][TLSPATCH] addr=0x{address:X16} type={patchType} orig={string.Join(' ', bytes)}");
 	}
 
 	private unsafe bool IsPatternMatch(byte* ptr, byte[] pattern)
@@ -2269,7 +2292,7 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		return true;
 	}
 
-	private unsafe bool TryPatchStackCanaryInstruction(nint address, byte* source)
+	private unsafe bool TryPatchStackCanaryInstruction(nint address, byte* source, int availableLength)
 	{
 		if (*source != 100)
 		{
@@ -2312,6 +2335,10 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			num5 |= 5;
 		}
 		byte b5 = (byte)(0xC0 | ((num4 & 7) << 3) | (num4 & 7));
+		if (_logTlsPatch)
+		{
+			LogTlsPatch(address, "canary", source, availableLength);
+		}
 		uint flNewProtect = default(uint);
 		if (!VirtualProtect((void*)address, (nuint)num2, 64u, &flNewProtect))
 		{
@@ -2391,6 +2418,11 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 			return false;
 		}
 
+		if (_logTlsPatch)
+		{
+			LogTlsPatch(address, "load", source, availableLength);
+		}
+
 		return PatchTlsLoadInstruction(address, instructionLength, destinationRegister);
 	}
 
@@ -2436,11 +2468,15 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		}
 	}
 
-	private unsafe bool TryPatchTlsImmediateStoreInstruction(nint address, byte* source)
+	private unsafe bool TryPatchTlsImmediateStoreInstruction(nint address, byte* source, int availableLength)
 	{
 		if (source[0] != 100 || source[1] != 199 || source[2] != 4 || source[3] != 37)
 		{
 			return false;
+		}
+		if (_logTlsPatch)
+		{
+			LogTlsPatch(address, "store", source, availableLength);
 		}
 		int tlsOffset = *(int*)(source + 4);
 		int immediateValue = *(int*)(source + 8);
