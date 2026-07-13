@@ -58,6 +58,7 @@ public sealed class ConsoleLogSink : ISharpEmuLogSink
     {
         return level switch
         {
+            LogLevel.Verbose => "VERBOSE",
             LogLevel.Trace => "TRACE",
             LogLevel.Debug => "DEBUG",
             LogLevel.Info => "INFO",
@@ -90,6 +91,7 @@ public sealed class ConsoleLogSink : ISharpEmuLogSink
     {
         return level switch
         {
+            LogLevel.Verbose => ConsoleColor.DarkGray,
             LogLevel.Trace => ConsoleColor.DarkGray,
             LogLevel.Debug => ConsoleColor.Gray,
             LogLevel.Info => ConsoleColor.Blue,

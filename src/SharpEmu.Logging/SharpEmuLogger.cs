@@ -16,6 +16,13 @@ public sealed class SharpEmuLogger
 
     public bool IsEnabled(LogLevel level) => SharpEmuLog.IsEnabled(level);
 
+    public void Verbose(
+        string message,
+        [CallerFilePath] string sourceFilePath = "",
+        [CallerLineNumber] int sourceLine = 0,
+        [CallerMemberName] string sourceMemberName = "")
+        => Write(LogLevel.Verbose, message, exception: null, sourceFilePath, sourceLine, sourceMemberName);
+
     public void Trace(
         string message,
         [CallerFilePath] string sourceFilePath = "",

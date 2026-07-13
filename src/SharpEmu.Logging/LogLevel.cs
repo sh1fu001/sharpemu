@@ -5,17 +5,23 @@ namespace SharpEmu.Logging;
 
 public enum LogLevel
 {
-    Trace = 0,
+    // Finest level, below Trace. Renumbered cleanly so the enum still starts at
+    // 0 and every `level >= _minimumLevel` filter keeps working unchanged. The
+    // default MinimumLevel remains Info, so adding Verbose changes no default
+    // behavior — it only becomes selectable via --log-level=verbose.
+    Verbose = 0,
 
-    Debug = 1,
+    Trace = 1,
 
-    Info = 2,
+    Debug = 2,
 
-    Warning = 3,
+    Info = 3,
 
-    Error = 4,
+    Warning = 4,
 
-    Critical = 5,
+    Error = 5,
 
-    None = 6,
+    Critical = 6,
+
+    None = 7,
 }

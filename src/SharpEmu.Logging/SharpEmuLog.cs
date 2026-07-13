@@ -115,6 +115,13 @@ public static class SharpEmuLog
             return true;
         }
 
+        // "verbose" is already handled by Enum.TryParse above; "v" is the short alias.
+        if (string.Equals(normalized, "v", StringComparison.OrdinalIgnoreCase))
+        {
+            level = LogLevel.Verbose;
+            return true;
+        }
+
         if (string.Equals(normalized, "warn", StringComparison.OrdinalIgnoreCase))
         {
             level = LogLevel.Warning;
