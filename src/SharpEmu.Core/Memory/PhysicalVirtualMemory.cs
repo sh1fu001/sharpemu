@@ -18,6 +18,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
     private readonly List<MemoryRegion> _regions = new();
     private readonly Dictionary<(ulong DesiredAddress, ulong Alignment, bool Executable), ulong> _allocationSearchHints = new();
     private readonly Dictionary<ulong, ProgramHeaderFlags> _pageProtections = new();
+    private readonly MemoryAccessDiagnostics _diagnostics = new(includeAddress: false);
     private bool _disposed;
     private const ulong PageSize = 0x1000;
     private const ulong GuestAllocationArenaAddress = 0x00006000_0000_0000;
@@ -108,6 +109,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
 
         var allocationKind = executable ? "executable memory" : "data memory";
         TraceVmem($"Allocated exact {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes)");
+        _diagnostics.Lifecycle("allocate_exact", actualAddress, alignedSize, $"executable={executable}");
         return true;
     }
 
@@ -241,6 +243,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
             ? "reserved data memory (lazy commit)"
             : (executable ? "executable memory" : "data memory");
         TraceVmem($"Allocated {allocationKind}: 0x{actualAddress:X16} - 0x{actualAddress + alignedSize:X16} ({alignedSize} bytes) lazy_prime={lazyPrimeState}");
+        _diagnostics.Lifecycle("allocate", actualAddress, alignedSize, $"executable={executable}");
 
         return actualAddress;
     }
@@ -338,6 +341,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
 
     public void Clear()
     {
+        ulong releasedBytes = 0;
         lock (_guestAllocationGate)
         {
             _gate.EnterWriteLock();
@@ -345,6 +349,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
             {
                 foreach (var region in _regions)
                 {
+                    releasedBytes += region.Size;
                     VirtualFree((void*)region.VirtualAddress, 0, MEM_RELEASE);
                 }
                 _regions.Clear();
@@ -362,6 +367,9 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
             _guestAllocationArenaBase = 0;
             _guestAllocationOffset = 0;
         }
+
+        _diagnostics.Lifecycle("free", 0, releasedBytes);
+        _diagnostics.Lifecycle("clear", 0, 0);
     }
 
     public void Map(ulong virtualAddress, ulong memorySize, ulong fileOffset, ReadOnlySpan<byte> fileData, ProgramHeaderFlags protection)
@@ -415,6 +423,8 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
         {
             _gate.ExitWriteLock();
         }
+
+        _diagnostics.Lifecycle("map", virtualAddress, memorySize, $"protection={protection}");
     }
 
     private void ApplySegmentProtection(ulong mapStart, ulong mapEnd, ProgramHeaderFlags flags)
@@ -460,6 +470,8 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
         {
             FlushInstructionCache(GetCurrentProcess(), (void*)address, (nuint)size);
         }
+
+        _diagnostics.Lifecycle("protection", address, size, $"flags={flags}");
     }
 
     public IReadOnlyList<VirtualMemoryRegion> SnapshotRegions()
@@ -487,6 +499,18 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
     }
 
     public bool TryRead(ulong virtualAddress, Span<byte> destination)
+    {
+        if (!_diagnostics.IsEnabled)
+        {
+            return TryReadCore(virtualAddress, destination);
+        }
+
+        var succeeded = TryReadCore(virtualAddress, destination);
+        _diagnostics.Access("read", virtualAddress, destination.Length, succeeded, succeeded ? null : "unmapped_or_protected_or_commit_failed");
+        return succeeded;
+    }
+
+    private bool TryReadCore(ulong virtualAddress, Span<byte> destination)
     {
         var requiresExclusiveAccess = false;
         _gate.EnterReadLock();
@@ -551,6 +575,18 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
     }
 
     public bool TryWrite(ulong virtualAddress, ReadOnlySpan<byte> source)
+    {
+        if (!_diagnostics.IsEnabled)
+        {
+            return TryWriteCore(virtualAddress, source);
+        }
+
+        var succeeded = TryWriteCore(virtualAddress, source);
+        _diagnostics.Access("write", virtualAddress, source.Length, succeeded, succeeded ? null : "unmapped_or_protected_or_commit_failed");
+        return succeeded;
+    }
+
+    private bool TryWriteCore(ulong virtualAddress, ReadOnlySpan<byte> source)
     {
         var requiresExclusiveAccess = false;
         _gate.EnterReadLock();
@@ -1055,7 +1091,14 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
             return;
         }
 
-        Log.Debug(message);
+        try
+        {
+            Log.Debug(message);
+        }
+        catch
+        {
+            // Logging must not affect memory operation behaviour.
+        }
     }
 
     public void Dispose()

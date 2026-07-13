@@ -9,6 +9,7 @@ public sealed class VirtualMemory : IVirtualMemory
 {
     private readonly object _gate = new();
     private readonly List<MappedRegion> _regions = new();
+    private readonly MemoryAccessDiagnostics _diagnostics = new();
 
     public void Clear()
     {
@@ -16,6 +17,8 @@ public sealed class VirtualMemory : IVirtualMemory
         {
             _regions.Clear();
         }
+
+        _diagnostics.Lifecycle("clear", 0, 0);
     }
 
     public void Map(ulong virtualAddress, ulong memorySize, ulong fileOffset, ReadOnlySpan<byte> fileData, ProgramHeaderFlags protection)
@@ -54,6 +57,8 @@ public sealed class VirtualMemory : IVirtualMemory
                 endAddress,
                 backingMemory));
         }
+
+        _diagnostics.Lifecycle("map", virtualAddress, memorySize, $"protection={protection}");
     }
 
     public IReadOnlyList<VirtualMemoryRegion> SnapshotRegions()
@@ -72,6 +77,18 @@ public sealed class VirtualMemory : IVirtualMemory
 
     public bool TryRead(ulong virtualAddress, Span<byte> destination)
     {
+        if (!_diagnostics.IsEnabled)
+        {
+            return TryReadCore(virtualAddress, destination);
+        }
+
+        var succeeded = TryReadCore(virtualAddress, destination);
+        _diagnostics.Access("read", virtualAddress, destination.Length, succeeded, succeeded ? null : "unmapped_or_out_of_range");
+        return succeeded;
+    }
+
+    private bool TryReadCore(ulong virtualAddress, Span<byte> destination)
+    {
         lock (_gate)
         {
             if (!TryResolveRegion(virtualAddress, destination.Length, out var region, out var offset))
@@ -85,6 +102,18 @@ public sealed class VirtualMemory : IVirtualMemory
     }
 
     public bool TryWrite(ulong virtualAddress, ReadOnlySpan<byte> source)
+    {
+        if (!_diagnostics.IsEnabled)
+        {
+            return TryWriteCore(virtualAddress, source);
+        }
+
+        var succeeded = TryWriteCore(virtualAddress, source);
+        _diagnostics.Access("write", virtualAddress, source.Length, succeeded, succeeded ? null : "unmapped_or_out_of_range");
+        return succeeded;
+    }
+
+    private bool TryWriteCore(ulong virtualAddress, ReadOnlySpan<byte> source)
     {
         lock (_gate)
         {
