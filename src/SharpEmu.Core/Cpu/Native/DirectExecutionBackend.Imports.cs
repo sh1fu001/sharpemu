@@ -4,7 +4,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using SharpEmu.Core.Cpu;
@@ -22,6 +24,192 @@ public sealed partial class DirectExecutionBackend
 	// from _rawSentinelRecoveries (DirectExecutionBackend.cs) so the two recovery
 	// mechanisms remain independently observable/auditable.
 	private static int _unemulatedTrapRecoveries;
+
+	// CPU-NATIVE-005: env-gated diagnostics + emulation-variant selector for the int45h
+	// recovery. Both are read once at startup so the recovery handler performs no getenv.
+	// Default (env absent) = unchanged CPU-NATIVE-001 behavior (RIP+=2, no other side effect).
+	//   SHARPEMU_LOG_INT45=1     -> log the guest marker at fs:[0x28] captured at each recovery.
+	//   SHARPEMU_INT45_MODE=0..3 -> select an emulation variant of the recovery:
+	//        0 = RIP+=2 only (baseline, default)
+	//        1 = RIP+=2 AND zero fs:[0x28] (consume the trap marker)
+	//        2 = RIP+=2 AND set RAX=0 (report success out of the trap)
+	//        3 = RIP+=2 AND RAX=0 AND fs:[0x28]=0
+	private static readonly bool _logInt45 =
+		string.Equals(Environment.GetEnvironmentVariable("SHARPEMU_LOG_INT45"), "1", StringComparison.Ordinal);
+	private static readonly int _int45Mode = ParseInt45Mode();
+
+	private static int ParseInt45Mode()
+	{
+		var raw = Environment.GetEnvironmentVariable("SHARPEMU_INT45_MODE");
+		return int.TryParse(raw, out var mode) && mode >= 0 && mode <= 3 ? mode : 0;
+	}
+
+	// ==================== OBS-EXEC-BREADCRUMB-001: execution breadcrumb ====================
+	// Gated ENTIRELY behind SHARPEMU_EXEC_BREADCRUMB=<file path>. When the env var is absent,
+	// _breadcrumbEnabled is false and every call site is a single bool test that the JIT can
+	// hoist — zero file I/O, zero allocation, zero behavior change (default path untouched).
+	// When set, every import dispatch appends one compact record {breadcrumb-seq, guest import
+	// counter, timestamp ticks, guest return RIP, importIndex, NID} to the file and forces an
+	// immediate flush-to-disk, so the very last guest import dispatched before a silent
+	// fail-fast/double-fault termination is durably recoverable from disk after the process
+	// dies. The full history is kept on disk (strictly more information than a bounded ring),
+	// so no separate in-memory ring is maintained — the last line of the file IS the last
+	// import, guaranteed durable. Formatting is done into a preallocated buffer under a lock
+	// with no per-call heap allocation; the disabled fast path adds no stack frame (the actual
+	// work is in a NoInlining slow path) so it cannot worsen a stack-overflow-class crash.
+	private static readonly bool _breadcrumbEnabled =
+		!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SHARPEMU_EXEC_BREADCRUMB"));
+	private static readonly object _breadcrumbSync = new();
+	private static FileStream? _breadcrumbStream;
+	private static bool _breadcrumbInitFailed;
+	private static long _breadcrumbSequence;
+	// Reused only under _breadcrumbSync — no per-call allocation. 512 bytes is far more than a
+	// single record needs; the NID copy below is additionally bounded against the length.
+	private static readonly byte[] _breadcrumbLineBuffer = new byte[512];
+
+	private static void RecordExecutionBreadcrumb(long counter, int importIndex, ulong returnRip, string nid)
+	{
+		if (!_breadcrumbEnabled)
+		{
+			return;
+		}
+
+		RecordExecutionBreadcrumbSlow(counter, importIndex, returnRip, nid);
+	}
+
+	[MethodImpl(MethodImplOptions.NoInlining)]
+	private static void RecordExecutionBreadcrumbSlow(long counter, int importIndex, ulong returnRip, string nid)
+	{
+		lock (_breadcrumbSync)
+		{
+			var stream = _breadcrumbStream;
+			if (stream is null)
+			{
+				if (_breadcrumbInitFailed)
+				{
+					return;
+				}
+
+				try
+				{
+					var path = Environment.GetEnvironmentVariable("SHARPEMU_EXEC_BREADCRUMB");
+					if (string.IsNullOrWhiteSpace(path))
+					{
+						_breadcrumbInitFailed = true;
+						return;
+					}
+
+					var directory = Path.GetDirectoryName(path);
+					if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+					{
+						Directory.CreateDirectory(directory);
+					}
+
+					// WriteThrough + Flush(flushToDisk:true) below = durable past a hard kill.
+					stream = new FileStream(
+						path,
+						FileMode.Create,
+						FileAccess.Write,
+						FileShare.Read,
+						bufferSize: 4096,
+						FileOptions.WriteThrough);
+					_breadcrumbStream = stream;
+					Console.Error.WriteLine(
+						$"[LOADER][INFO] OBS-EXEC-BREADCRUMB-001: execution breadcrumb active -> {path}");
+				}
+				catch (Exception ex)
+				{
+					_breadcrumbInitFailed = true;
+					Console.Error.WriteLine(
+						$"[LOADER][WARN] OBS-EXEC-BREADCRUMB-001: failed to open breadcrumb file: {ex.GetType().Name}: {ex.Message}");
+					return;
+				}
+			}
+
+			var buffer = _breadcrumbLineBuffer;
+			int length = FormatBreadcrumbRecord(buffer, ++_breadcrumbSequence, counter, importIndex, returnRip, nid);
+			try
+			{
+				stream.Write(buffer, 0, length);
+				stream.Flush(flushToDisk: true);
+			}
+			catch
+			{
+				// A write/flush failure must never propagate into guest dispatch. Diagnostics
+				// only; the process is already in an unusual state if this ever fails.
+			}
+		}
+	}
+
+	private static int FormatBreadcrumbRecord(byte[] buffer, long seq, long counter, int importIndex, ulong returnRip, string nid)
+	{
+		int p = 0;
+		buffer[p++] = (byte)'#';
+		p = AppendDecimal(buffer, p, seq);
+		p = AppendAscii(buffer, p, " c=");
+		p = AppendDecimal(buffer, p, counter);
+		p = AppendAscii(buffer, p, " t=");
+		p = AppendDecimal(buffer, p, Stopwatch.GetTimestamp());
+		p = AppendAscii(buffer, p, " ret=0x");
+		p = AppendHex16(buffer, p, returnRip);
+		p = AppendAscii(buffer, p, " idx=");
+		p = AppendDecimal(buffer, p, importIndex);
+		p = AppendAscii(buffer, p, " nid=");
+		for (int i = 0; i < nid.Length && p < buffer.Length - 1; i++)
+		{
+			char c = nid[i];
+			buffer[p++] = c < 0x80 ? (byte)c : (byte)'?';
+		}
+
+		buffer[p++] = (byte)'\n';
+		return p;
+	}
+
+	private static int AppendAscii(byte[] buffer, int p, string text)
+	{
+		for (int i = 0; i < text.Length; i++)
+		{
+			buffer[p++] = (byte)text[i];
+		}
+
+		return p;
+	}
+
+	private static int AppendDecimal(byte[] buffer, int p, long value)
+	{
+		if (value < 0)
+		{
+			buffer[p++] = (byte)'-';
+			value = -value;
+		}
+
+		Span<byte> tmp = stackalloc byte[20];
+		int t = tmp.Length;
+		do
+		{
+			tmp[--t] = (byte)('0' + (int)(value % 10));
+			value /= 10;
+		}
+		while (value != 0);
+
+		while (t < tmp.Length)
+		{
+			buffer[p++] = tmp[t++];
+		}
+
+		return p;
+	}
+
+	private static int AppendHex16(byte[] buffer, int p, ulong value)
+	{
+		for (int shift = 60; shift >= 0; shift -= 4)
+		{
+			int nibble = (int)((value >> shift) & 0xF);
+			buffer[p++] = (byte)(nibble < 10 ? '0' + nibble : 'a' + (nibble - 10));
+		}
+
+		return p;
+	}
 
 	private static ulong ImportDispatchGatewayManaged(nint backendHandle, int importIndex, nint argPackPtr)
 	{
@@ -178,11 +366,77 @@ public sealed partial class DirectExecutionBackend
 			// to the existing (crashing) behavior below.
 			return 0;
 		}
+		// CPU-NATIVE-005: resolve the current guest thread's TLS base so we can read the
+		// marker code the guest wrote to fs:[0x28] immediately before this int45h (the
+		// parameterized-trap argument documented in analysis/cpu-native-004-*). The guest's
+		// fs: is redirected through SharpEmu's TLS handler, which resolves the per-thread base
+		// via TlsGetValue(_guestTlsBaseTlsIndex) (see CreateTlsHandler); we use the same
+		// mechanism here. _activeExecutionBackend is [ThreadStatic] and is set on the guest
+		// execution thread, which is the faulting thread this vectored handler runs on.
+		// Gating (review CPU-NATIVE-005): resolving the guest TLS base and reading fs:[0x28]
+		// is diagnostic/variant-only work. On the default path (SHARPEMU_LOG_INT45 unset and
+		// SHARPEMU_INT45_MODE=0) it must NOT run — both because it is dead work and because a
+		// raw guest read from inside a vectored handler is not reliably catchable on this
+		// runtime (see comment above), so it must never touch the default recovery path.
+		bool needTlsBase = _logInt45 || _int45Mode == 1 || _int45Mode == 3;
+		nint tlsBase = 0;
+		if (needTlsBase)
+		{
+			var backend = _activeExecutionBackend;
+			if (backend is not null && backend._guestTlsBaseTlsIndex != uint.MaxValue)
+			{
+				tlsBase = TlsGetValue(backend._guestTlsBaseTlsIndex);
+			}
+		}
+		ulong markerFull = 0;
+		bool markerRead = false;
+		if (_logInt45 && tlsBase != 0)
+		{
+			try
+			{
+				markerFull = *(ulong*)(tlsBase + 0x28);
+				markerRead = true;
+			}
+			catch
+			{
+				// Reading guest fs:[0x28] must never throw out of the handler.
+			}
+		}
+
 		WriteCtxU64(contextRecord, 248, rip + 2);
-		Interlocked.Increment(ref _unemulatedTrapRecoveries);
+		int recoveryCount = Interlocked.Increment(ref _unemulatedTrapRecoveries);
+
+		// CPU-NATIVE-005 emulation variants (default mode 0 = CPU-NATIVE-001 behavior, unchanged).
+		if (_int45Mode == 2 || _int45Mode == 3)
+		{
+			WriteCtxU64(contextRecord, 120, 0uL); // RAX = 0
+		}
+		if ((_int45Mode == 1 || _int45Mode == 3) && tlsBase != 0)
+		{
+			try
+			{
+				// Match the guest's 4-byte `mov dword ptr fs:[0x28], imm32` store width so
+				// we consume only the marker and never clobber the adjacent TLS bytes.
+				*(uint*)(tlsBase + 0x28) = 0u;
+			}
+			catch
+			{
+			}
+		}
+
 		Console.Error.WriteLine(
 			$"[LOADER][WARN] CPU-NATIVE-001: recovered from unemulated `int 45h` (CD 45) trap at RIP=0x{rip:X16}; " +
-			$"skipped instruction and resumed at 0x{rip + 2:X16} (unemulated_trap_recoveries={_unemulatedTrapRecoveries})");
+			$"skipped instruction and resumed at 0x{rip + 2:X16} (unemulated_trap_recoveries={recoveryCount})");
+		if (_logInt45)
+		{
+			Console.Error.WriteLine(
+				markerRead
+					? $"[LOADER][WARN] CPU-NATIVE-005: int45h recovery #{recoveryCount} fs:[0x28]=0x{markerFull:X16} " +
+					  $"marker=0x{(uint)markerFull:X8} tlsBase=0x{tlsBase:X16} mode={_int45Mode}"
+					: $"[LOADER][WARN] CPU-NATIVE-005: int45h recovery #{recoveryCount} fs:[0x28]=<unreadable> " +
+					  $"tlsBase=0x{tlsBase:X16} mode={_int45Mode}");
+			Console.Error.Flush();
+		}
 		return -1;
 	}
 
@@ -226,6 +480,13 @@ public sealed partial class DirectExecutionBackend
 			return 18446744071562199042uL;
 		}
 		ImportStubEntry importStubEntry = _importEntries[importIndex];
+		// OBS-EXEC-BREADCRUMB-001: durable last-guest-import record. The env-var guard keeps
+		// this a single bool test (plus one already-safe argpack read) on the default path;
+		// placed here so it covers BOTH the leaf fast path below and the full gateway path.
+		if (_breadcrumbEnabled)
+		{
+			RecordExecutionBreadcrumb(num, importIndex, *(ulong*)(argPackPtr + 96), importStubEntry.Nid);
+		}
 		int num2 = Volatile.Read(in _rawSentinelRecoveries);
 		if (num2 != _lastReportedRawSentinelRecoveries)
 		{
