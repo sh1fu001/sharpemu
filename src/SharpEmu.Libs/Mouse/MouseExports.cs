@@ -42,13 +42,4 @@ public static class MouseExports
         return (int)OrbisGen2Result.ORBIS_GEN2_OK;
     }
 
-    [SysAbiExport(
-        Nid = "Qs0wWulgl7U",
-        ExportName = "sceMouseInit",
-        Target = Generation.Gen4 | Generation.Gen5,
-        LibraryName = "libSceMouse")]
-    public static int MouseInit(CpuContext ctx)
-    {
-        return ctx.SetReturn(0);
-    }
 }

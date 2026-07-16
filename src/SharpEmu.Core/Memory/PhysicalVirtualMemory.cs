@@ -371,7 +371,7 @@ public sealed unsafe class PhysicalVirtualMemory : IVirtualMemory, IGuestMemoryA
             }
 
             var region = _regions[index];
-            if (!VirtualFree((void*)region.VirtualAddress, 0, MEM_RELEASE))
+            if (!_hostMemory.Free(region.VirtualAddress))
             {
                 return false;
             }
