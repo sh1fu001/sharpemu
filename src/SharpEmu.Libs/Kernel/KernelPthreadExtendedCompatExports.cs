@@ -30,8 +30,13 @@ public static class KernelPthreadExtendedCompatExports
     private static readonly Dictionary<ulong, ThreadState> _threadStates = new();
     private static readonly Dictionary<ulong, PthreadAttrState> _attrStates = new();
     private static readonly Dictionary<ulong, PthreadRwlockState> _rwlockStates = new();
+    // Real PS4/PS5 kernels (FreeBSD-derived) cap thread-specific keys at 256 and recycle
+    // freed slots; guest libc/runtime code (e.g. IL2Cpp's own TLS bookkeeping) can rely on
+    // that bound for fixed-size per-key tables, so handing out unbounded, ever-growing key
+    // values here can overrun such guest-side arrays. See PthreadKeysMax below.
+    private const int PthreadKeysMax = 256;
     private static readonly ConcurrentDictionary<int, TlsKeyState> _tlsKeys = new();
-    private static int _nextTlsKey = 1;
+    private static readonly object _tlsKeyAllocationGate = new();
     private static long _nextSyntheticRwlockHandleId = 1;
     private static long _nextSyntheticPthreadAttrHandleId = 1;
     private static long _nextSyntheticRwlockAttrHandleId = 1;
@@ -1251,12 +1256,24 @@ public static class KernelPthreadExtendedCompatExports
         }
 
         int key;
-        while (true)
+        lock (_tlsKeyAllocationGate)
         {
-            key = Interlocked.Increment(ref _nextTlsKey) - 1;
-            if (_tlsKeys.TryAdd(key, new TlsKeyState(destructor)))
+            key = -1;
+            // Key zero is used as an "unallocated" sentinel by guest libc
+            // and IL2Cpp bookkeeping. Keep it reserved while still recycling
+            // all usable keys inside the platform limit.
+            for (var candidate = 1; candidate < PthreadKeysMax; candidate++)
             {
-                break;
+                if (_tlsKeys.TryAdd(candidate, new TlsKeyState(destructor)))
+                {
+                    key = candidate;
+                    break;
+                }
+            }
+
+            if (key < 0)
+            {
+                return (int)OrbisGen2Result.ORBIS_GEN2_ERROR_TRY_AGAIN;
             }
         }
 
